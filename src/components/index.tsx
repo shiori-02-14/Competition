@@ -8,9 +8,9 @@ import {
   formatDate,
   formatLabel,
   isTravelSupport,
-} from "./logic";
-import type { Row } from "./logic";
-import type { Competition } from "./types";
+} from "../lib/logic";
+import type { Row } from "../lib/logic";
+import type { Competition } from "../lib/types";
 
 function Thumb({ item }: { item: Competition }) {
   const [failed, setFailed] = useState(false);

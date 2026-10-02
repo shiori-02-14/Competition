@@ -43,31 +43,45 @@ h1, h2, h3, p { margin: 0; }
 .top {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
-  gap: 16px;
-  padding: 18px 0 12px;
-  margin-bottom: 20px;
-  border-bottom: 2px solid var(--accent);
+  align-items: center;
+  gap: 20px;
+  padding: 22px 0 16px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid var(--line);
 }
-.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+}
 .brand img {
-  width: 46px;
-  height: 46px;
+  width: 48px;
+  height: 48px;
   object-fit: contain;
   background: transparent;
   flex: none;
 }
-.brand h1 { font-size: 26px; font-weight: 700; line-height: 1.15; letter-spacing: 0.02em; }
-.brand p { margin-top: 3px; color: var(--muted); font-size: 13px; }
-.stats { display: flex; gap: 18px; }
+.brand h1 { font-size: 28px; font-weight: 700; line-height: 1.1; letter-spacing: 0.04em; }
+.brand p { margin-top: 4px; color: var(--muted); font-size: 13px; line-height: 1.4; }
+.brand:hover h1 { color: var(--accent); }
+.stats { display: flex; align-items: center; flex: none; }
 .stats button {
   border: 0;
   background: transparent;
-  padding: 0;
-  text-align: right;
+  padding: 2px 14px;
+  text-align: left;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
 }
-.stats strong { display: block; font-size: 20px; line-height: 1; color: var(--accent); }
-.stats span { color: var(--muted); font-size: 11px; }
+.stats button + button { border-left: 1px solid var(--line); }
+.stats strong { font-size: 18px; line-height: 1; color: var(--accent); }
+.stats span { color: var(--muted); font-size: 12px; }
 
 .finder { margin-bottom: 18px; }
 .search {
@@ -391,7 +405,8 @@ body.drawer-open { overflow: hidden; }
 @media (max-width: 860px) {
   .top, .toolbar { align-items: stretch; flex-direction: column; }
   .stats { justify-content: flex-start; }
-  .stats button { text-align: left; }
+  .stats button { padding-left: 0; }
+  .stats button:first-child { padding-left: 0; }
   .layout { grid-template-columns: 1fr; }
   .side { display: none; }
   .side.is-open {

@@ -22,8 +22,8 @@ import {
   readFilters,
   sortRows,
   todayISO,
-} from "./logic";
-import type { Competition, Filters, Profile, SortKey, View } from "./types";
+} from "./lib/logic";
+import type { Competition, Filters, Profile, SortKey, View } from "./lib/types";
 
 type SourceReport = { id: string; label: string; ok: boolean; fetched: number; error?: string };
 type Catalog = { updatedAt: string; sources: SourceReport[]; competitions: Competition[] };
@@ -135,6 +135,14 @@ export default function App() {
   const areaLabel = profile.area === "all" ? "拠点はどこでも" : profile.area;
 
   const patch = (partial: Partial<Filters>) => setFilters((current) => ({ ...current, ...partial }));
+  const goHome = () => {
+    setFilters(DEFAULT_FILTERS);
+    setView("cards");
+    setSelected(null);
+    setFiltersOpen(false);
+    setFocusDay(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
   const setSort = (next: SortKey) => patch({ sortOverride: next });
   const toggleSave = (id: number) =>
     setSaved((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
@@ -148,13 +156,13 @@ export default function App() {
   return (
     <div className="page">
       <header className="top">
-        <div className="brand">
+        <button type="button" className="brand" onClick={goHome}>
           <img src={`${import.meta.env.BASE_URL}mark.png`} alt="" width="48" height="48" />
-          <div>
+          <span>
             <h1>挑戦ナビ</h1>
             <p>ハッカソン、ビジコン、奨学金から、次に出す一本を探す。</p>
-          </div>
-        </div>
+          </span>
+        </button>
         <div className="stats">
           <button type="button" onClick={() => patch({ status: "open", savedOnly: false })}>
             <strong>{openCount}</strong>
