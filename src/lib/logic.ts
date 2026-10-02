@@ -15,6 +15,7 @@ export const CATEGORIES: Category[] = [
   "ハッカソン",
   "ビジコン",
   "学術",
+  "奨学金",
   "スタートアップ",
   "アクセラレーション",
   "交流会",
@@ -25,6 +26,7 @@ export const CATEGORY_SHORT: Record<Category, string> = {
   ハッカソン: "HACK",
   ビジコン: "BIZ",
   学術: "ACAD",
+  奨学金: "SCHOL",
   スタートアップ: "START",
   アクセラレーション: "ACC",
   交流会: "MEET",
@@ -367,7 +369,12 @@ export function prizeLabel(c: Competition): string {
   }
   const foreign = /\$|USD|USDC|ドル|ユーロ/.test(c.prize);
   const prefix = foreign ? "約" : "";
+  const aid = /給付/.test(c.prize) ? "給付" : /貸与/.test(c.prize) ? "貸与" : "";
   const gift = primaryIsGift(c.prize) ? giftName(c.prize) : "";
+  if (aid && (c.topYen || c.poolYen)) {
+    const money = formatYen(c.topYen || c.poolYen);
+    return /総額/.test(c.prize) ? `${aid} 総額${money}` : `${aid} ${prefix}${money}`;
+  }
   if (c.topYen && c.poolYen > c.topYen * 1.15) {
     return `${prefix}最高${formatYen(c.topYen)} / 総額${formatYen(c.poolYen)}`;
   }
@@ -604,7 +611,11 @@ export function interpret(query: string): Interpreted {
     out.categories = ["ビジコン"];
     notes.push("ビジコン");
   });
-  rest = consume(rest, /奨学金|学術/, () => {
+  rest = consume(rest, /奨学金/, () => {
+    out.categories = ["奨学金"];
+    notes.push("奨学金");
+  });
+  rest = consume(rest, /学術/, () => {
     out.categories = ["学術"];
     notes.push("学術");
   });

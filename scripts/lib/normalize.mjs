@@ -257,7 +257,8 @@ function findPlace(text) {
 export function inferCategory(text) {
   if (/ハッカソン|hackathon|アイデアソン/i.test(text)) return "ハッカソン";
   if (/アクセラ/.test(text)) return "アクセラレーション";
-  if (/奨学金|研究助成|学術/.test(text)) return "学術";
+  if (/奨学金|奨学会|奨学財団/.test(text) && !/コンテスト|コンペ|ハッカソン|ピッチ/.test(text)) return "奨学金";
+  if (/研究助成|学術/.test(text)) return "学術";
   if (/交流会|ミートアップ|meetup/i.test(text)) return "交流会";
   if (/スタートアップ/.test(text) && !/コンテスト|コンペ|ピッチ/.test(text)) return "スタートアップ";
   if (/コンテスト|コンペ|ビジコン|ピッチ|アワード|グランプリ/.test(text)) return "ビジコン";
@@ -335,6 +336,8 @@ export function normalize(raw) {
   else if (category === "ハッカソン" || /ハッカソン/.test(blob)) effort = 3;
   else if (docOnly) effort = 2;
 
+  const eligibility = clipEligibility(raw.eligibility || raw.target);
+
   return {
     id: raw.id,
     title,
@@ -361,7 +364,20 @@ export function normalize(raw) {
     tags,
     effort,
     closedHint,
+    ...(eligibility ? { eligibility } : {}),
   };
+}
+
+export function clipEligibility(text) {
+  const cleaned = String(text || "")
+    .replace(/\s+/g, " ")
+    .replace(/([^\x00-\x7F])\s+(?=[^\x00-\x7F])/g, "$1")
+    .replace(/^[・※●\-\s]+/, "")
+    .replace(/。+）/g, "）")
+    .replace(/。{2,}/g, "。")
+    .trim();
+  if (!cleaned || ["-", "−", "なし", "無し", "記載なし", "null"].includes(cleaned)) return "";
+  return cleaned.length > 140 ? `${cleaned.slice(0, 140)}…` : cleaned;
 }
 
 export function richness(item) {

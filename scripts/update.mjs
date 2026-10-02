@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { canonUrl, decodeHtml, inferCategory, isCompetitionLike, normalize, richness, titleKey } from "./lib/normalize.mjs";
-import { fetchHackathonJapan, fetchJdn, fetchTechplay } from "./lib/sources.mjs";
+import { fetchGaxi, fetchHackathonJapan, fetchJdn, fetchTechplay } from "./lib/sources.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const catalogPath = path.join(root, "public", "competitions.json");
@@ -232,7 +232,10 @@ function merge(previous, incoming) {
       return;
     }
     const candidate = { ...item, id: current.id };
-    remember(richness(candidate) >= richness(current) ? candidate : current);
+    const winner = richness(candidate) >= richness(current) ? { ...candidate } : { ...current };
+    if (!winner.eligibility) winner.eligibility = candidate.eligibility || current.eligibility || "";
+    if (!winner.eligibility) delete winner.eligibility;
+    remember(winner);
   };
 
   for (const item of previous) place(item, true);
@@ -281,6 +284,7 @@ async function fetchAndSave(previous) {
     ["jdn", "JDN登竜門", fetchJdn],
     ["hackathon-japan", "Hackathon Japan", fetchHackathonJapan],
     ["techplay", "TECH PLAY", fetchTechplay],
+    ["gaxi", "ガクシー", fetchGaxi],
     ["doorkeeper", "Doorkeeper", fetchDoorkeeper],
     ["connpass", "connpass", fetchConnpass],
   ];

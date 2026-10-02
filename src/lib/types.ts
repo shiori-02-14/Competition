@@ -2,6 +2,7 @@ export type Category =
   | "ハッカソン"
   | "ビジコン"
   | "学術"
+  | "奨学金"
   | "スタートアップ"
   | "アクセラレーション"
   | "交流会"
@@ -48,6 +49,7 @@ export type Competition = {
   tags: string[];
   effort: 1 | 2 | 3 | 4;
   closedHint: boolean;
+  eligibility?: string;
   origin?: string;
 };
 

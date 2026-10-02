@@ -1,7 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { decodeHtml, inferCategory, isCompetitionLike, normalize } from "./normalize.mjs";
+import Hashids from "hashids";
+import { clipEligibility, decodeHtml, inferCategory, isCompetitionLike, normalize } from "./normalize.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const jdnCachePath = path.join(root, "data", "jdn-links.json");
@@ -37,7 +38,8 @@ function isForChildren(title) {
 function jdnCategory(slug, title, summary) {
   const text = `${title} ${summary}`;
   if (/ハッカソン|アイデアソン|hackathon/i.test(text)) return "ハッカソン";
-  if (/奨学金|研究助成/.test(text)) return "学術";
+  if (/奨学金|奨学会|奨学財団/.test(text) && !/コンテスト|コンペ|ハッカソン|ピッチ/.test(text)) return "奨学金";
+  if (/研究助成/.test(text)) return "学術";
   if (slug === "idea" || /ビジネス|起業|ピッチ/.test(text)) return "ビジコン";
   if (slug === "student") return inferCategory(text);
   return "その他";
@@ -186,6 +188,135 @@ function parseTechplay(html) {
       venue,
     };
   });
+}
+
+const gaxiIds = new Hashids("himitsu_no_kagi", 16);
+
+function tokyoToday() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function yenText(amount) {
+  const n = Number(amount) || 0;
+  if (n <= 0) return "";
+  if (n >= 10_000) {
+    const man = n / 10_000;
+    const text = man >= 100 ? String(Math.round(man)) : String(Math.round(man * 10) / 10).replace(/\.0$/, "");
+    return `${text}万円`;
+  }
+  return `${n}円`;
+}
+
+function scholarshipDeadline(row) {
+  const year = Number(row.application_end_year);
+  const month = Number(row.application_end_month);
+  if (!year || !month) return "";
+  const fallback = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const day = Number(row.application_end_day) || fallback;
+  const iso = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : "";
+}
+
+async function searchGaxi(benefitTypes, page) {
+  const response = await fetch("https://gaxi.jp/api/project/search", {
+    method: "POST",
+    headers: {
+      "User-Agent": UA,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "X-HTTP-Method-Override": "GET",
+    },
+    body: JSON.stringify({
+      form: {
+        scholarship_types: ["奨学金"],
+        benefit_types: benefitTypes,
+        exists_school_recruitment_type: false,
+      },
+      limit: 50,
+      page,
+      sort: "updated_at",
+    }),
+    signal: AbortSignal.timeout(45000),
+  });
+  if (!response.ok) throw new Error(`${response.status} gaxi`);
+  const data = await response.json();
+  return Array.isArray(data) ? data.filter((row) => row && typeof row === "object" && row.id && row.name) : [];
+}
+
+export async function fetchGaxi() {
+  const today = tokyoToday();
+  const seen = new Set();
+  const rows = [];
+  const queries = [["給付"], ["貸与（有利子）", "貸与（無利子）"]];
+  for (const benefitTypes of queries) {
+    for (let page = 1; page <= 5; page += 1) {
+      const batch = await searchGaxi(benefitTypes, page);
+      if (!batch.length) break;
+      for (const row of batch) {
+        if (seen.has(row.id) || isForChildren(row.name)) continue;
+        const deadline = scholarshipDeadline(row);
+        if (!deadline || deadline < today) continue;
+        seen.add(row.id);
+        const program = row.program || {};
+        const benefit = String(program.benefit_type || benefitTypes[0]);
+        const kind = benefit.startsWith("貸与") ? "貸与" : "給付";
+        const organizer = program.organization?.name || "";
+        const area = program.area_restriction && program.area_restriction !== "地域の制限なし" ? program.area_restriction : "";
+        const amount = yenText(row.total_amount);
+        rows.push({
+          ...normalize({
+            title: row.name,
+            organizer,
+            summary: `${organizer || "団体"}の${kind}型奨学金。${area ? `${area}が対象。` : "応募条件は公式ページで確認。"}`,
+            url: `https://gaxi.jp/project/${gaxiIds.encode(row.id)}/`,
+            prize: amount ? `${kind} 総額${amount}` : kind,
+            prizeAmount: Number(row.total_amount) || 0,
+            deadline,
+            category: "奨学金",
+            target: "大学生 奨学金",
+          }),
+          origin: "gaxi",
+          gaxiId: row.id,
+        });
+      }
+      await sleep(200);
+    }
+  }
+  for (const row of rows) {
+    try {
+      const response = await fetch(`https://gaxi.jp/api/project/${row.gaxiId}`, {
+        headers: { "User-Agent": UA, Accept: "application/json" },
+        signal: AbortSignal.timeout(45000),
+      });
+      if (response.ok) {
+        const detail = await response.json();
+        const eligibility = gaxiEligibility(detail);
+        if (eligibility) row.eligibility = eligibility;
+      }
+    } catch {
+      // 資格が取れなくても一覧自体は残す
+    }
+    delete row.gaxiId;
+    await sleep(120);
+  }
+  return rows.filter((item) => item.title && item.url);
+}
+
+function gaxiEligibility(detail) {
+  const lines = String(detail.application_condition || "")
+    .split(/\n+/)
+    .map((line) => line.replace(/^[\s・※●\-*]+/, "").replace(/\s+/g, " ").trim())
+    .filter((line) => line && !/^以下の/.test(line));
+  const extra = [];
+  if (detail.major_detail && !/制限なし/.test(detail.major_detail)) extra.push(detail.major_detail);
+  if (detail.area_restriction && detail.area_restriction !== "地域の制限なし") extra.push(`地域は${detail.area_restriction}`);
+  const text = [...lines.slice(0, 3), ...extra.filter((item) => !lines.join("").includes(item))].join("。");
+  return clipEligibility(text);
 }
 
 export async function fetchTechplay() {

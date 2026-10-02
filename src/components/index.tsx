@@ -107,6 +107,12 @@ export function Card({
               <dt>開催日</dt>
               <dd>{ev.startLabel}</dd>
             </div>
+            {c.eligibility && (
+              <div>
+                <dt>応募資格</dt>
+                <dd>{c.eligibility}</dd>
+              </div>
+            )}
           </dl>
           <Thumb item={c} />
         </div>
@@ -199,6 +205,12 @@ export function Detail({
             <dt>対象</dt>
             <dd>{audienceLabel(c.audience)}</dd>
           </div>
+          {c.eligibility && (
+            <div>
+              <dt>応募資格</dt>
+              <dd>{c.eligibility}</dd>
+            </div>
+          )}
           <div>
             <dt>手間</dt>
             <dd>{effortLabel(c.effort)}</dd>

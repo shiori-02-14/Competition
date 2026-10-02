@@ -178,6 +178,8 @@ h1, h2, h3, p { margin: 0; }
 .group { margin-top: 16px; }
 .group h3 { margin-bottom: 8px; }
 .fine { color: var(--faint); font-size: 12px; line-height: 1.7; }
+.scholarship { margin-bottom: 28px; }
+.scholarship .fine { margin: -4px 0 8px; }
 .reset { margin-top: 16px; color: var(--accent); }
 .close-side, .filter-toggle { display: none; }
 
@@ -263,7 +265,7 @@ h1, h2, h3, p { margin: 0; }
   margin-top: 18px;
 }
 .facts { display: grid; gap: 8px; }
-.facts div { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; }
+.facts div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 8px; }
 .facts dt { color: #888; font-size: 14px; }
 .facts dd { margin: 0; font-size: 14px; line-height: 1.5; }
 .facts .is-due { color: var(--accent); }
@@ -389,7 +391,7 @@ h1, h2, h3, p { margin: 0; }
 .howto summary { cursor: pointer; color: var(--ink); }
 .howto p { margin-top: 6px; }
 .detail-facts { display: grid; gap: 10px; margin-top: 8px; }
-.detail-facts div { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; }
+.detail-facts div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 8px; }
 .detail-facts dt { color: #888; }
 .detail-facts dd { margin: 0; line-height: 1.6; }
 .detail-facts div:first-child dt,

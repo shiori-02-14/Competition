@@ -129,8 +129,12 @@ export default function App() {
     !filters.docOnly &&
     !filters.beginner &&
     !filters.savedOnly;
-  const featured = browsing && sort === "recommend" ? filtered.slice(0, 3) : [];
-  const list = featured.length ? filtered.slice(featured.length) : filtered;
+  const scholarshipRows = filtered.filter((row) => row.c.category === "奨学金");
+  const contestRows = filtered.filter((row) => row.c.category !== "奨学金");
+  const splitScholarships = view === "cards" && scholarshipRows.length > 0 && contestRows.length > 0;
+  const mainRows = splitScholarships ? contestRows : filtered;
+  const featured = browsing && sort === "recommend" ? mainRows.slice(0, 3) : [];
+  const list = featured.length ? mainRows.slice(featured.length) : mainRows;
   const roleLabel = ROLE_OPTIONS.find((item) => item.id === profile.role)?.label;
   const areaLabel = profile.area === "all" ? "拠点はどこでも" : profile.area;
 
@@ -464,9 +468,31 @@ export default function App() {
             </section>
           )}
 
+          {catalog && view === "cards" && splitScholarships && (
+            <section className="stack scholarship">
+              <h2 className="section-label">奨学金</h2>
+              <p className="fine">給付と貸与の募集です。金額は公開されている総額で、月額は公式ページで確認してください。</p>
+              {scholarshipRows.map((row) => (
+                <Card
+                  key={row.c.id}
+                  row={row}
+                  saved={saved.includes(row.c.id)}
+                  onOpen={setSelected}
+                  onToggleSave={toggleSave}
+                />
+              ))}
+            </section>
+          )}
+
           {catalog && view === "cards" && (
             <section className="stack">
-              {featured.length > 0 && list.length > 0 && <h2 className="section-label">すべての募集</h2>}
+              {splitScholarships && list.length > 0 && <h2 className="section-label">コンペ・イベント</h2>}
+              {!splitScholarships && scholarshipRows.length > 0 && contestRows.length === 0 && (
+                <h2 className="section-label">奨学金</h2>
+              )}
+              {!splitScholarships && featured.length > 0 && list.length > 0 && (
+                <h2 className="section-label">すべての募集</h2>
+              )}
               {list.map((row) => (
                 <Card
                   key={row.c.id}
