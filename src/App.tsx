@@ -56,7 +56,7 @@ export default function App() {
 
   useEffect(() => {
     let stop = false;
-    fetch("/competitions.json", { cache: "no-store" })
+    fetch(`${import.meta.env.BASE_URL}competitions.json`, { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error(String(response.status));
         return (await response.json()) as Catalog;
@@ -149,7 +149,7 @@ export default function App() {
     <div className="page">
       <header className="top">
         <div className="brand">
-          <img src="/mark.png" alt="" width="48" height="48" />
+          <img src={`${import.meta.env.BASE_URL}mark.png`} alt="" width="48" height="48" />
           <div>
             <h1>挑戦ナビ</h1>
             <p>ハッカソン、ビジコン、奨学金から、次に出す一本を探す。</p>
@@ -459,7 +459,7 @@ export default function App() {
 
           {catalog && view === "cards" && (
             <section className="stack">
-              {browsing && list.length > 0 && <h2 className="section-label">すべての募集</h2>}
+              {featured.length > 0 && list.length > 0 && <h2 className="section-label">すべての募集</h2>}
               {list.map((row) => (
                 <Card
                   key={row.c.id}
