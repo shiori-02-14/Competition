@@ -156,12 +156,11 @@ export default function App() {
   return (
     <div className="page">
       <header className="top">
-        <button type="button" className="brand" onClick={goHome}>
-          <img src={`${import.meta.env.BASE_URL}mark.png`} alt="" width="48" height="48" />
-          <span>
-            <h1>挑戦ナビ</h1>
-            <p>ハッカソン、ビジコン、奨学金から、次に出す一本を探す。</p>
-          </span>
+        <button type="button" className="brand" aria-label="挑戦ナビ" onClick={goHome}>
+          <h1>
+            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="挑戦ナビ" />
+          </h1>
+          <p>ハッカソン、ビジコン、奨学金から、次に出す一本を探す。</p>
         </button>
         <div className="stats">
           <button type="button" onClick={() => patch({ status: "open", savedOnly: false })}>
