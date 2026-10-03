@@ -1,8 +1,19 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { canonUrl, decodeHtml, inferCategory, isCompetitionLike, normalize, richness, titleKey } from "./lib/normalize.mjs";
-import { fetchGaxi, fetchHackathonJapan, fetchJdn, fetchTechplay } from "./lib/sources.mjs";
+import { canonUrl, contestKey, decodeHtml, inferCategory, isCompetitionLike, normalize, richness, scholarshipGenre } from "./lib/normalize.mjs";
+import { enrichCatalog } from "./lib/yomi.mjs";
+import {
+  fetchCompedia,
+  fetchDevpost,
+  fetchGaxi,
+  fetchHackathonJapan,
+  fetchJdn,
+  fetchKoubo,
+  fetchTechplay,
+  fetchWashimaru,
+  isOffCatalog,
+} from "./lib/sources.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const catalogPath = path.join(root, "public", "competitions.json");
@@ -21,10 +32,10 @@ function tokyoDay(value) {
 const UA = "challenge-zukan/1.0 (daily public-event catalog)";
 const TYPE_LABEL = {
   hackathon: "ハッカソン",
-  bizcon: "ビジコン",
-  academia: "学術",
-  acceleration: "アクセラレーション",
-  startup: "スタートアップ",
+  bizcon: "ビジネス・企画",
+  academia: "文芸・論文",
+  acceleration: "ビジネス・企画",
+  startup: "ビジネス・企画",
   networking: "交流会",
   unknown: "その他",
 };
@@ -80,7 +91,10 @@ async function fetchNuestar() {
         summary: row.description,
         url: row.url,
         image: row.image_url || "",
-        category: TYPE_LABEL[row.type] || inferCategory(`${row.name} ${row.description || ""}`),
+        category: (() => {
+          const guessed = inferCategory(`${row.name}\n${row.description || ""}`);
+          return guessed !== "その他" ? guessed : TYPE_LABEL[row.type] || "その他";
+        })(),
         deadline: row.deadline_date || "",
         deadlineText: row.deadline || "",
         starts: row.event_date_date || "",
@@ -208,44 +222,85 @@ async function readCatalog() {
   }
 }
 
+function editionsCompatible(left, right) {
+  if (!left || !right) return true;
+  return left === right;
+}
+
+function isAggregator(url) {
+  return /koubo\.jp|compedia\.jp/.test(url || "");
+}
+
+function combine(primary, secondary) {
+  const winner = { ...primary };
+  if (!winner.deadline && secondary.deadline) winner.deadline = secondary.deadline;
+  if (!winner.starts && secondary.starts) winner.starts = secondary.starts;
+  if (!winner.image && secondary.image) winner.image = secondary.image;
+  if (!winner.prize && secondary.prize) winner.prize = secondary.prize;
+  if (!winner.organizer && secondary.organizer) winner.organizer = secondary.organizer;
+  if ((secondary.summary || "").length > (winner.summary || "").length) winner.summary = secondary.summary;
+  if (!winner.eligibility && secondary.eligibility) winner.eligibility = secondary.eligibility;
+  if (isAggregator(winner.url) && secondary.url && !isAggregator(secondary.url)) winner.url = secondary.url;
+  if (/《[^》]*》/.test(winner.title) && !/《/.test(secondary.title)) winner.title = secondary.title;
+  if (!winner.eligibility) delete winner.eligibility;
+  return winner;
+}
+
 function merge(previous, incoming) {
   const byUrl = new Map();
-  const byTitle = new Map();
+  const byBase = new Map();
   let nextId = 0;
+
+  const findTitle = (item) => {
+    const key = contestKey(item.title);
+    if (!key.base) return null;
+    return (byBase.get(key.base) || []).find((current) => editionsCompatible(key.edition, contestKey(current.title).edition)) || null;
+  };
 
   const remember = (item) => {
     nextId = Math.max(nextId, Number(item.id) || 0);
     const urlKey = canonUrl(item.url);
     if (urlKey) byUrl.set(urlKey, item);
-    const nameKey = titleKey(item.title);
-    if (nameKey) byTitle.set(nameKey, item);
+    const { base } = contestKey(item.title);
+    if (!base) return;
+    const list = byBase.get(base) || [];
+    const index = list.findIndex((current) => current.id === item.id);
+    if (index >= 0) list[index] = item;
+    else list.push(item);
+    byBase.set(base, list);
   };
 
   const place = (item, keepId) => {
     if (!item.title || !item.url) return;
     const urlKey = canonUrl(item.url);
-    const nameKey = titleKey(item.title);
-    const current = byUrl.get(urlKey) || byTitle.get(nameKey);
+    const current = byUrl.get(urlKey) || findTitle(item);
     if (!current) {
       const id = keepId && item.id ? Number(item.id) : Math.max(nextId, 1_000_000) + 1;
       remember({ ...item, id });
       return;
     }
     const candidate = { ...item, id: current.id };
-    const winner = richness(candidate) >= richness(current) ? { ...candidate } : { ...current };
-    if (!winner.eligibility) winner.eligibility = candidate.eligibility || current.eligibility || "";
-    if (!winner.eligibility) delete winner.eligibility;
+    const primary = richness(candidate) >= richness(current) ? candidate : current;
+    const secondary = primary === candidate ? current : candidate;
+    const winner = combine(primary, secondary);
+    if ((item.origin === "jdn" || current.origin === "jdn") && (item.origin === "jdn" ? item.category : current.category)) {
+      winner.category = item.origin === "jdn" ? item.category : current.category;
+    }
     remember(winner);
   };
 
   for (const item of previous) place(item, true);
-  for (const item of incoming) place(item, item.origin === "nuestar" && !byUrl.has(canonUrl(item.url)) && !byTitle.has(titleKey(item.title)));
+  for (const item of incoming) place(item, item.origin === "nuestar" && !byUrl.has(canonUrl(item.url)) && !findTitle(item));
 
   const unique = new Map();
   for (const item of byUrl.values()) unique.set(item.id, item);
   return [...unique.values()].sort(
     (a, b) => (a.deadline || "9999").localeCompare(b.deadline || "9999") || a.title.localeCompare(b.title, "ja"),
   );
+}
+
+export function dedupeCompetitions(items) {
+  return merge(items, []);
 }
 
 async function withLock(task) {
@@ -287,6 +342,10 @@ async function fetchAndSave(previous) {
     ["gaxi", "ガクシー", fetchGaxi],
     ["doorkeeper", "Doorkeeper", fetchDoorkeeper],
     ["connpass", "connpass", fetchConnpass],
+    ["koubo", "Koubo", fetchKoubo],
+    ["compedia", "コンペディア", fetchCompedia],
+    ["devpost", "Devpost", fetchDevpost],
+    ["washimaru", "わしまる大学", fetchWashimaru],
   ];
   const sources = [];
   const incoming = [];
@@ -305,13 +364,28 @@ async function fetchAndSave(previous) {
     throw new Error("どのサイトからも取得できませんでした");
   }
 
-  const kept = previous.competitions.filter((item) => item.origin === "nuestar" || !isNoise(item.title));
+  const kept = previous.competitions.filter((item) => {
+    if (item.origin !== "nuestar" && isNoise(item.title)) return false;
+    if (isOffCatalog(item.title)) return false;
+    return true;
+  });
   const competitions = merge(kept, incoming);
+  for (const item of competitions) {
+    if (item.origin === "gaxi" || item.origin === "direct" || item.origin === "washimaru") {
+      item.category = scholarshipGenre(`${item.title}\n${item.eligibility || ""}`);
+    }
+    else if (item.origin !== "jdn" && item.origin !== "devpost") item.category = inferCategory(`${item.title}\n${item.summary || ""}`);
+  }
   const catalog = {
     updatedAt: new Date().toISOString(),
     sources,
     competitions,
   };
+  try {
+    await enrichCatalog(catalog);
+  } catch (error) {
+    console.error("読みの付与に失敗:", error instanceof Error ? error.message : error);
+  }
   await mkdir(path.dirname(catalogPath), { recursive: true });
   const temporary = `${catalogPath}.tmp`;
   await writeFile(temporary, JSON.stringify(catalog));

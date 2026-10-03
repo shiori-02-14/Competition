@@ -1,12 +1,28 @@
 export type Category =
   | "ハッカソン"
-  | "ビジコン"
-  | "学術"
-  | "奨学金"
-  | "スタートアップ"
-  | "アクセラレーション"
+  | "ビジネス・企画"
+  | "デジタル"
+  | "グラフィック"
+  | "プロダクト"
+  | "建築・空間"
+  | "ロゴ・キャラ"
+  | "イラスト"
+  | "絵画"
+  | "写真"
+  | "映像"
+  | "川柳・短歌"
+  | "文芸・論文"
+  | "音楽・エンタメ"
+  | "工芸・ファッション"
   | "交流会"
-  | "その他";
+  | "その他"
+  | "学業"
+  | "留学"
+  | "スポーツ"
+  | "芸術"
+  | "医療・福祉"
+  | "理工"
+  | "経済支援";
 
 export type Format = "online" | "hybrid" | "onsite" | "unknown";
 
@@ -51,6 +67,7 @@ export type Competition = {
   closedHint: boolean;
   eligibility?: string;
   origin?: string;
+  reading?: string;
 };
 
 export type Role = "highschool" | "university" | "graduate" | "working";
@@ -82,6 +99,7 @@ export type Filters = {
   area: ProfileArea;
   minPrize: number;
   student: boolean;
+  universityPlus: boolean;
   docOnly: boolean;
   beginner: boolean;
   savedOnly: boolean;

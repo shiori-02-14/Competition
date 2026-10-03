@@ -1,3 +1,5 @@
+import { canonicalize, collapseVowels, norm, registerPhrases, squash, tokenHits } from "./kana";
+import { PLACE_WORDS, SEARCH_PHRASES } from "./phrases";
 import type {
   Audience,
   Category,
@@ -11,26 +13,69 @@ import type {
   StatusFilter,
 } from "./types";
 
-export const CATEGORIES: Category[] = [
+registerPhrases(SEARCH_PHRASES);
+
+export const CONTEST_CATEGORIES: Category[] = [
   "ハッカソン",
-  "ビジコン",
-  "学術",
-  "奨学金",
-  "スタートアップ",
-  "アクセラレーション",
+  "ビジネス・企画",
+  "デジタル",
+  "グラフィック",
+  "プロダクト",
+  "建築・空間",
+  "ロゴ・キャラ",
+  "イラスト",
+  "絵画",
+  "写真",
+  "映像",
+  "川柳・短歌",
+  "文芸・論文",
+  "音楽・エンタメ",
+  "工芸・ファッション",
   "交流会",
   "その他",
 ];
 
+export const SCHOLARSHIP_CATEGORIES: Category[] = ["学業", "留学", "スポーツ", "芸術", "医療・福祉", "理工", "経済支援"];
+
+export const CATEGORIES: Category[] = [...CONTEST_CATEGORIES, ...SCHOLARSHIP_CATEGORIES];
+
+export function isScholarship(category: Category): boolean {
+  return SCHOLARSHIP_CATEGORIES.includes(category);
+}
+
 export const CATEGORY_SHORT: Record<Category, string> = {
   ハッカソン: "HACK",
-  ビジコン: "BIZ",
-  学術: "ACAD",
-  奨学金: "SCHOL",
-  スタートアップ: "START",
-  アクセラレーション: "ACC",
+  "ビジネス・企画": "BIZ",
+  デジタル: "WEB",
+  グラフィック: "GRAPH",
+  プロダクト: "PROD",
+  "建築・空間": "SPACE",
+  "ロゴ・キャラ": "LOGO",
+  イラスト: "ILLUST",
+  絵画: "PAINT",
+  写真: "PHOTO",
+  映像: "MOVIE",
+  "川柳・短歌": "POEM",
+  "文芸・論文": "LIT",
+  "音楽・エンタメ": "ENT",
+  "工芸・ファッション": "CRAFT",
   交流会: "MEET",
   その他: "ETC",
+  学業: "STUDY",
+  留学: "ABROAD",
+  スポーツ: "SPORT",
+  芸術: "ARTS",
+  "医療・福祉": "CARE",
+  理工: "STEM",
+  経済支援: "AID",
+};
+
+const LEGACY_CATEGORY: Record<string, Category> = {
+  ビジコン: "ビジネス・企画",
+  学術: "文芸・論文",
+  スタートアップ: "ビジネス・企画",
+  アクセラレーション: "ビジネス・企画",
+  奨学金: "学業",
 };
 
 export const TAGS = [
@@ -113,6 +158,7 @@ export const DEFAULT_FILTERS: Filters = {
   area: "all",
   minPrize: 0,
   student: false,
+  universityPlus: false,
   docOnly: false,
   beginner: false,
   savedOnly: false,
@@ -145,75 +191,6 @@ const PLACE_EXTRAS: Record<string, string[]> = {
   海外: ["海外"],
 };
 
-const PLACE_WORDS = [
-  "サンフランシスコ",
-  "シリコンバレー",
-  "シンガポール",
-  "北海道",
-  "神奈川",
-  "和歌山",
-  "鹿児島",
-  "名古屋",
-  "浜松",
-  "横浜",
-  "仙台",
-  "札幌",
-  "金沢",
-  "沖縄",
-  "東京",
-  "大阪",
-  "京都",
-  "愛知",
-  "福岡",
-  "静岡",
-  "岐阜",
-  "三重",
-  "兵庫",
-  "神戸",
-  "広島",
-  "石川",
-  "関東",
-  "関西",
-  "東海",
-  "九州",
-  "北陸",
-  "海外",
-  "オンライン",
-  "渋谷",
-  "新宿",
-  "千葉",
-  "埼玉",
-  "長野",
-  "新潟",
-  "富山",
-  "福井",
-  "奈良",
-  "岡山",
-  "熊本",
-  "長崎",
-  "宮城",
-  "茨城",
-  "栃木",
-  "群馬",
-  "山梨",
-  "滋賀",
-  "香川",
-  "愛媛",
-  "高知",
-  "徳島",
-  "大分",
-  "宮崎",
-  "佐賀",
-  "青森",
-  "岩手",
-  "秋田",
-  "山形",
-  "福島",
-  "鳥取",
-  "島根",
-  "山口",
-];
-
 export type Interpreted = {
   text: string;
   notes: string[];
@@ -222,6 +199,7 @@ export type Interpreted = {
   format?: Format;
   place?: string;
   student?: boolean;
+  universityPlus?: boolean;
   docOnly?: boolean;
   beginner?: boolean;
   approachable?: boolean;
@@ -581,7 +559,7 @@ function consume(rest: string, re: RegExp, apply: (match: RegExpMatchArray) => v
 }
 
 export function interpret(query: string): Interpreted {
-  let rest = query.trim();
+  let rest = canonicalize(query.trim());
   const notes: string[] = [];
   const out: Interpreted = { text: "", notes };
 
@@ -607,31 +585,54 @@ export function interpret(query: string): Interpreted {
     out.categories = ["ハッカソン"];
     notes.push("ハッカソン");
   });
-  rest = consume(rest, /ビジコン|ビジネスコンテスト/, () => {
-    out.categories = ["ビジコン"];
-    notes.push("ビジコン");
+  rest = consume(rest, /ビジコン|ビジネスコンテスト|ビジネス・企画|ピッチ/, () => {
+    out.categories = ["ビジネス・企画"];
+    notes.push("ビジネス・企画");
   });
+  let scholarship = false;
   rest = consume(rest, /奨学金/, () => {
-    out.categories = ["奨学金"];
+    scholarship = true;
     notes.push("奨学金");
   });
-  rest = consume(rest, /学術/, () => {
-    out.categories = ["学術"];
-    notes.push("学術");
+  rest = consume(rest, /学術|論文|文芸/, () => {
+    out.categories = ["文芸・論文"];
+    notes.push("文芸・論文");
   });
-  rest = consume(rest, /アクセラ/, () => {
-    out.categories = ["アクセラレーション"];
-    notes.push("アクセラレーション");
+  rest = consume(rest, /アクセラ|スタートアップ/, () => {
+    if (!out.categories) {
+      out.categories = ["ビジネス・企画"];
+      notes.push("ビジネス・企画");
+    }
   });
   rest = consume(rest, /交流会|ミートアップ/, () => {
     out.categories = ["交流会"];
     notes.push("交流会");
   });
-  rest = consume(rest, /スタートアップ/, () => {
-    if (!out.categories) {
-      out.categories = ["スタートアップ"];
-      notes.push("スタートアップ");
-    }
+  const genres: [RegExp, Category][] = [
+    [/グラフィック|ポスター/, "グラフィック"],
+    [/プロダクト|商品企画/, "プロダクト"],
+    [/建築|インテリア/, "建築・空間"],
+    [/ロゴ|キャラクター/, "ロゴ・キャラ"],
+    [/イラスト|マンガ|漫画/, "イラスト"],
+    [/絵画/, "絵画"],
+    [/写真/, "写真"],
+    [/映像|アニメ/, "映像"],
+    [/川柳|俳句|短歌/, "川柳・短歌"],
+    [/音楽|エンタメ/, "音楽・エンタメ"],
+    [/ファッション|工芸/, "工芸・ファッション"],
+    [/デジタル|アプリ/, "デジタル"],
+  ];
+  for (const [pattern, category] of genres) {
+    rest = consume(rest, pattern, () => {
+      if (!out.categories) {
+        out.categories = [category];
+        notes.push(category);
+      }
+    });
+  }
+  rest = consume(rest, /大学生以上|大学以上/, () => {
+    out.universityPlus = true;
+    notes.push("大学生以上");
   });
   rest = consume(rest, /学生向け|学生限定|学生/, () => {
     out.student = true;
@@ -664,9 +665,29 @@ export function interpret(query: string): Interpreted {
     }
   }
 
-  const filler = rest.replace(/コンペ|コンテスト|募集|だけ|高い|以上/g, "").replace(/[のをにはが\s]/g, "");
-  if (!filler) rest = "";
-  else rest = rest.replace(/^[のをにはが\s]+|[のをにはが\s]+$/g, "").replace(/\s+/g, " ").trim();
+  if (scholarship && !out.categories) {
+    const kinds: [RegExp, Category][] = [
+      [/留学/, "留学"],
+      [/スポーツ/, "スポーツ"],
+      [/芸術|美術|音楽/, "芸術"],
+      [/医療|看護|福祉/, "医療・福祉"],
+      [/理工|工学/, "理工"],
+      [/経済|ひとり親|児童養護/, "経済支援"],
+      [/学業/, "学業"],
+    ];
+    for (const [pattern, category] of kinds) {
+      if (!pattern.test(rest)) continue;
+      out.categories = [category];
+      notes.push(category);
+      rest = rest.replace(pattern, " ");
+      break;
+    }
+    if (!out.categories) out.categories = [...SCHOLARSHIP_CATEGORIES];
+  }
+
+  const bare = stripParticles(rest.replace(/コンペ|コンテスト|募集|だけ|高い|以上/g, ""));
+  if (!bare) rest = "";
+  else rest = stripParticles(rest);
   if (rest) notes.push(`キーワード「${rest}」`);
   out.text = rest;
   out.notes = notes;
@@ -684,15 +705,42 @@ function mergeCategories(selected: Category[], query?: Category[]): Category[] |
   return null;
 }
 
+const hayCache = new WeakMap<Competition, { n: string; s: string; c: string }>();
+
+function stripParticles(value: string) {
+  return value.replace(/(?:^|\s)[のをにはが]+(?=\s|$)/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function searchHay(c: Competition) {
+  const cached = hayCache.get(c);
+  if (cached) return cached;
+  const raw = [c.title, c.organizer, c.summary, c.venue, c.prize, c.region, c.area, c.category, c.tags.join(" "), c.eligibility ?? "", c.reading ?? ""].join(" ");
+  const normalized = norm(raw);
+  const hay = { n: normalized, s: squash(raw), c: collapseVowels(normalized) };
+  hayCache.set(c, hay);
+  return hay;
+}
+
 function placeHit(c: Competition, place: string): boolean {
-  const blob = `${c.venue} ${c.region} ${c.area} ${c.summary} ${c.title} ${c.organizer}`;
-  return [place, ...(PLACE_EXTRAS[place] ?? [])].some((word) => blob.includes(word));
+  const hay = searchHay(c);
+  return [place, ...(PLACE_EXTRAS[place] ?? [])].some((word) => tokenHits(hay.n, hay.s, hay.c, word));
+}
+
+const PRE_UNIVERSITY = /高校生|中学生|小学生|小中|中高生|U-18|18歳以下|１８歳以下/;
+const UNIVERSITY_PLUS = /大学生(?!による)|大学院|社会人|高専/;
+
+function belowUniversity(c: Competition): boolean {
+  const blob = `${c.title}\n${c.summary}\n${c.eligibility ?? ""}`;
+  if (!PRE_UNIVERSITY.test(blob)) return false;
+  if (UNIVERSITY_PLUS.test(blob)) return false;
+  if (/(?<![中小高])学生[、,・／/\s]*高校生|高校生[、,・／/\s]*(?<![中小高])学生/.test(blob)) return false;
+  return true;
 }
 
 export function matchRow(row: Row, filters: Filters, query: Interpreted, saved: number[]): boolean {
   const { c, ev } = row;
   if (filters.savedOnly && !saved.includes(c.id)) return false;
-  if (filters.status === "open" && ev.status === "closed") return false;
+  if (filters.status === "open" && ev.status === "closed" && !query.text) return false;
   if (filters.status === "soon" && ev.status !== "soon") return false;
   if (filters.status === "closed" && ev.status !== "closed") return false;
 
@@ -715,14 +763,15 @@ export function matchRow(row: Row, filters: Filters, query: Interpreted, saved: 
   if ((filters.student || query.student) && !c.forStudent && c.audience !== "student" && c.audience !== "youth") {
     return false;
   }
+  if ((filters.universityPlus || query.universityPlus) && belowUniversity(c)) return false;
   if ((filters.docOnly || query.docOnly) && !c.docOnly) return false;
   if ((filters.beginner || query.beginner) && !c.beginner) return false;
   if (query.approachable && !(ev.challenge <= 68 && c.effort <= 3)) return false;
 
   if (query.text) {
-    const blob = `${c.title} ${c.organizer} ${c.summary} ${c.venue} ${c.prize} ${c.region} ${c.tags.join(" ")} ${c.category}`.toLowerCase();
-    const tokens = query.text.toLowerCase().split(/\s+/).filter(Boolean);
-    if (tokens.some((token) => !blob.includes(token))) return false;
+    const hay = searchHay(c);
+    const tokens = query.text.split(/\s+/).filter(Boolean);
+    if (tokens.some((token) => !tokenHits(hay.n, hay.s, hay.c, token))) return false;
   }
   return true;
 }
@@ -771,9 +820,14 @@ export function isView(value: string | null): value is import("./types").View {
 
 export function readFilters(search: string): Filters {
   const params = new URLSearchParams(search);
-  const categories = (params.get("cat") ?? "")
-    .split(",")
-    .filter((item): item is Category => CATEGORIES.includes(item as Category));
+  const categories = [
+    ...new Set(
+      (params.get("cat") ?? "").split(",").flatMap((item) => {
+        if (item === "奨学金") return SCHOLARSHIP_CATEGORIES;
+        return [LEGACY_CATEGORY[item] ?? item];
+      }),
+    ),
+  ].filter((item): item is Category => CATEGORIES.includes(item as Category));
   const format = params.get("format");
   const area = params.get("area");
   const sort = params.get("sort");
@@ -789,6 +843,7 @@ export function readFilters(search: string): Filters {
     area: AREA_OPTIONS.some((item) => item.id === area) ? (area as ProfileArea) : "all",
     minPrize: Number(params.get("prize") ?? 0) || 0,
     student: params.get("student") === "1",
+    universityPlus: params.get("uni") === "1",
     docOnly: params.get("doc") === "1",
     beginner: params.get("beginner") === "1",
     savedOnly: params.get("saved") === "1",
@@ -809,6 +864,7 @@ export function filtersToSearch(filters: Filters, view: import("./types").View, 
   if (filters.area !== "all") params.set("area", filters.area);
   if (filters.minPrize) params.set("prize", String(filters.minPrize));
   if (filters.student) params.set("student", "1");
+  if (filters.universityPlus) params.set("uni", "1");
   if (filters.docOnly) params.set("doc", "1");
   if (filters.beginner) params.set("beginner", "1");
   if (filters.savedOnly) params.set("saved", "1");

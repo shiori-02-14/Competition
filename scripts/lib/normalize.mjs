@@ -122,12 +122,22 @@ export function canonUrl(url) {
   }
 }
 
+export function contestKey(title) {
+  const text = String(title || "").normalize("NFKC");
+  const edition = text.match(/第\s*(\d+)\s*回/)?.[1] || "";
+  const base = text
+    .replace(/《[^》]*》/g, "")
+    .replace(/([A-Za-z0-9])[（(][ァ-ヶー\s]+[)）]/g, "$1")
+    .replace(/第\s*\d+\s*回/g, "")
+    .replace(/[ーｰ－−–—〜～]/g, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+  return { base, edition };
+}
+
 export function titleKey(title) {
-  return String(title || "")
-    .replace(/\s+/g, "")
-    .replaceAll("！", "!")
-    .replaceAll("　", "")
-    .toLowerCase();
+  const { base, edition } = contestKey(title);
+  return edition ? `${base}#${edition}` : base;
 }
 
 export function decodeHtml(value) {
@@ -254,14 +264,48 @@ function findPlace(text) {
   return "";
 }
 
+function genreFromTitle(title) {
+  const t = String(title || "");
+  if (/写真|フォトコン|フォトコンテスト/.test(t)) return "写真";
+  if (/映画|アニメ|映像|ショートフィルム|動画コンテスト/.test(t)) return "映像";
+  if (/イラスト|illustration|マンガ|漫画|ぬりえ|塗り絵/i.test(t)) return "イラスト";
+  if (/ロゴ|キャラクター|シンボルマーク|校章/.test(t)) return "ロゴ・キャラ";
+  if (/ポスター|グラフィック/.test(t)) return "グラフィック";
+  if (/建築|インテリア|エクステリア|空間デザイン|空間アワード/.test(t)) return "建築・空間";
+  if (/プロダクト|家具|商品企画/.test(t)) return "プロダクト";
+  if (/ファッション|工芸|アパレル|キルト/.test(t)) return "工芸・ファッション";
+  if (/絵画|版画|美術展/.test(t)) return "絵画";
+  if (/川柳|俳句|短歌/.test(t)) return "川柳・短歌";
+  if (/音楽コンテスト|作曲|演奏|音楽録音|レシピコンテスト|お弁当コンテスト/.test(t)) return "音楽・エンタメ";
+  if (/論文|エッセイ|小説|コピー|小論文|作文|脚本|手紙|標語|文学賞/.test(t)) return "文芸・論文";
+  if (/ビジネス|起業|ピッチ|ビジコン|ビジネスプラン|スタートアップ|アクセラ/.test(t)) return "ビジネス・企画";
+  if (/アプリ|プログラミング|ゲーム開発|Webサービス|ウェブサービス/.test(t)) return "デジタル";
+  return "";
+}
+
+export function scholarshipGenre(text) {
+  const raw = String(text || "").replace(/[^。\n]*を除く/g, "");
+  const title = raw.split("\n")[0];
+  const extra = raw.slice(title.length);
+  if (/スポーツ/.test(raw)) return "スポーツ";
+  if (/留学/.test(raw)) return "留学";
+  if (/芸術|美術|音楽|デザイン|工芸/.test(title) || /芸術|美術|音楽|デザイン|工芸/.test(extra)) return "芸術";
+  if (/ひとり親|児童養護|母子家庭|父子家庭|生活保護/.test(raw)) return "経済支援";
+  if (/看護|医療|薬学|福祉|介護/.test(raw)) return "医療・福祉";
+  if (/理工|工学|情報工学|情報系|理工学/.test(raw)) return "理工";
+  return "学業";
+}
+
 export function inferCategory(text) {
-  if (/ハッカソン|hackathon|アイデアソン/i.test(text)) return "ハッカソン";
-  if (/アクセラ/.test(text)) return "アクセラレーション";
-  if (/奨学金|奨学会|奨学財団/.test(text) && !/コンテスト|コンペ|ハッカソン|ピッチ/.test(text)) return "奨学金";
-  if (/研究助成|学術/.test(text)) return "学術";
-  if (/交流会|ミートアップ|meetup/i.test(text)) return "交流会";
-  if (/スタートアップ/.test(text) && !/コンテスト|コンペ|ピッチ/.test(text)) return "スタートアップ";
-  if (/コンテスト|コンペ|ビジコン|ピッチ|アワード|グランプリ/.test(text)) return "ビジコン";
+  const t = String(text || "");
+  const title = t.split("\n")[0];
+  if (/奨学金|奨学会|奨学財団/.test(t) && !/コンテスト|コンペ|ハッカソン|ピッチ/.test(t)) return scholarshipGenre(t);
+  if (/ハッカソン|hackathon|アイデアソン|\bHack\b|ハック(?!イング)/i.test(title)) return "ハッカソン";
+  if (/交流会|ミートアップ|meetup/i.test(title)) return "交流会";
+  const genre = genreFromTitle(title);
+  if (genre) return genre;
+  if (/研究助成/.test(t)) return "文芸・論文";
+  if (/コンテスト|コンペ|アワード|グランプリ|ピッチ|ビジコン/.test(t)) return "ビジネス・企画";
   return "その他";
 }
 
@@ -320,7 +364,7 @@ export function normalize(raw) {
   const isBuild = /ハッカソン|実装|プロトタイプ|試作品|ソースコード|開発して|作品を開発|アプリを開発/.test(blob);
   const isDoc = /書類選考|書類審査|企画書|アイデアを募集|アイデア段階|エントリーシート|小論文|400字|ビジネスプラン/.test(blob);
   let docOnly = category !== "ハッカソン" && isDoc && !isBuild;
-  if (category === "ビジコン" && /アイデア|ビジネスプラン|企画/.test(blob) && !isBuild) docOnly = true;
+  if (category === "ビジネス・企画" && /アイデア|ビジネスプラン|企画/.test(blob) && !isBuild) docOnly = true;
   const beginner = /初心者|未経験|初めての|はじめての|経験不問|知識がなくても|プログラミング経験不要|専門知識がなくても|気軽に参加/.test(blob);
   const tags = TAGS.filter(([, pattern]) => pattern.test(blob)).map(([name]) => name).slice(0, 6);
   const funding = /出資|資金調達|エクイティ|Investment|funding/i.test(blob);
@@ -331,7 +375,7 @@ export function normalize(raw) {
   const poolYen = travelSupport ? 0 : parsed.pool;
 
   let effort = 2;
-  if (/\d\s*ヶ?月|か月|半年|合宿|渡航|アクセラレー/.test(blob) || category === "アクセラレーション") effort = 4;
+  if (/\d\s*ヶ?月|か月|半年|合宿|渡航|アクセラレー/.test(blob)) effort = 4;
   else if (category === "交流会" || (/交流会|説明会|ミートアップ|Meetup|ワークショップ/.test(blob) && category !== "ハッカソン")) effort = 1;
   else if (category === "ハッカソン" || /ハッカソン/.test(blob)) effort = 3;
   else if (docOnly) effort = 2;
