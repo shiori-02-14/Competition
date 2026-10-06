@@ -45,9 +45,7 @@ h1, h2, h3, p { margin: 0; }
   justify-content: space-between;
   align-items: center;
   gap: 20px;
-  padding: 22px 0 16px;
-  margin-bottom: 22px;
-  border-bottom: 1px solid var(--line);
+  padding: 22px 0 18px;
 }
 .brand-block {
   display: flex;
@@ -110,6 +108,37 @@ h1, h2, h3, p { margin: 0; }
 }
 .stats span { color: var(--muted); font-size: 12px; line-height: 1.3; }
 .stats button.is-on span { color: var(--accent); font-weight: 700; }
+
+.kinds {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 20px;
+  border-bottom: 1px solid #d7d7d7;
+}
+.kinds button {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 8px 11px;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 17px;
+  font-weight: 700;
+}
+.kinds button:hover { color: var(--ink); }
+.kinds button.is-on { color: var(--accent); border-bottom-color: var(--accent); }
+.kinds em {
+  font-style: normal;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.kinds button.is-on em { color: var(--accent); }
 
 .finder { margin-bottom: 18px; }
 .search {
@@ -214,18 +243,6 @@ h1, h2, h3, p { margin: 0; }
   text-align: left;
 }
 .side .chip.is-on em { color: #fff; }
-.more { margin-top: 18px; }
-.more summary {
-  cursor: pointer;
-  color: var(--accent);
-  font-size: 15px;
-  font-weight: 700;
-}
-.more .group { margin-top: 12px; }
-.scholarship { display: grid; gap: 22px; margin-bottom: 28px; }
-.scholarship .fine { margin: -12px 0 0; }
-.genre-block { display: grid; gap: 12px; }
-.genre-block h3 { margin: 0; font-size: 15px; }
 .reset { margin-top: 16px; color: var(--accent); }
 .close-side, .filter-toggle { display: none; }
 
@@ -336,6 +353,7 @@ h1, h2, h3, p { margin: 0; }
 
 .empty { padding: 28px 4px; color: var(--muted); }
 .empty h3 { color: var(--ink); font-size: 18px; margin-bottom: 6px; }
+.empty .ghost { margin-top: 14px; color: var(--accent); font-weight: 700; }
 
 .board {
   display: grid;
@@ -478,4 +496,6 @@ body.drawer-open { overflow: hidden; }
   .names { display: none; }
   .day { min-height: 58px; }
   .search .primary { min-height: 44px; }
+  .kinds button { font-size: 15px; gap: 6px; padding-inline: 4px; }
+  .kinds em { font-size: 12px; }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   CATEGORY_SHORT,
@@ -7,6 +7,7 @@ import {
   eventDate,
   formatDate,
   formatLabel,
+  isScholarship,
   isTravelSupport,
 } from "../lib/logic";
 import type { Row } from "../lib/logic";
@@ -44,6 +45,7 @@ export function Card({
 }) {
   const { c, ev } = row;
   const closed = ev.status === "closed";
+  const scholarship = isScholarship(c.category);
   return (
     <article
       className={closed ? "card is-closed" : "card"}
@@ -92,7 +94,7 @@ export function Card({
         <div className="entry-main">
           <dl className="facts">
             <div>
-              <dt>{isTravelSupport(c) ? "交通費" : "賞"}</dt>
+              <dt>{scholarship ? "支給" : isTravelSupport(c) ? "交通費" : "賞"}</dt>
               <dd>{ev.prizeLabel}</dd>
             </div>
             <div>
@@ -103,14 +105,16 @@ export function Card({
               <dt className="is-due">締切</dt>
               <dd className="is-due">{ev.deadlineLabel}</dd>
             </div>
-            <div>
-              <dt>開催日</dt>
-              <dd>{ev.startLabel}</dd>
-            </div>
+            {!scholarship && (
+              <div>
+                <dt>開催日</dt>
+                <dd>{ev.startLabel}</dd>
+              </div>
+            )}
             {c.eligibility && (
               <div>
                 <dt>応募資格</dt>
-                <dd>{c.eligibility}</dd>
+                <dd className="clamp">{c.eligibility}</dd>
               </div>
             )}
           </dl>
@@ -140,6 +144,7 @@ export function Detail({
   onToggleSave: (id: number) => void;
 }) {
   const { c, ev } = row;
+  const scholarship = isScholarship(c.category);
   useEffect(() => {
     document.body.classList.add("drawer-open");
     const onKey = (event: KeyboardEvent) => {
@@ -173,34 +178,27 @@ export function Detail({
             {saved ? "保存済み" : "保存する"}
           </button>
         </div>
-        <div className="meters">
-          <Meter label="相性" value={ev.fit} note={ev.fitReasons.join("。")} />
-          <Meter label="コスパ" value={ev.cospa} note={ev.cospaReasons.join("。")} />
-          <Meter label="挑戦度" value={ev.challenge} note={`${ev.challengeLabel}。${ev.challengeNote}`} />
-        </div>
-        <details className="howto">
-          <summary>この数字の意味</summary>
-          <p>相性は、学年・拠点・興味との近さです。</p>
-          <p>コスパは、賞金額に対して手間と移動が小さいかを見ています。企画書やオンラインは上がります。</p>
-          <p>挑戦度は、賞金額、主催の規模、実装の重さから見た通りにくさです。高いほど勝ちにくい、という意味です。</p>
-        </details>
         <dl className="detail-facts">
           <div>
             <dt>締切</dt>
             <dd>{ev.deadlineLabel}</dd>
           </div>
-          <div>
-            <dt>開催日</dt>
-            <dd>{ev.startLabel}</dd>
-          </div>
-          <div>
-            <dt>会場</dt>
-            <dd>{c.venue || "記載なし"}</dd>
-          </div>
-          <div>
-            <dt>形式</dt>
-            <dd>{formatLabel(c.format)}</dd>
-          </div>
+          {!scholarship && (
+            <>
+              <div>
+                <dt>開催日</dt>
+                <dd>{ev.startLabel}</dd>
+              </div>
+              <div>
+                <dt>会場</dt>
+                <dd>{c.venue || "記載なし"}</dd>
+              </div>
+              <div>
+                <dt>形式</dt>
+                <dd>{formatLabel(c.format)}</dd>
+              </div>
+            </>
+          )}
           <div>
             <dt>対象</dt>
             <dd>{audienceLabel(c.audience)}</dd>
@@ -216,10 +214,11 @@ export function Detail({
             <dd>{effortLabel(c.effort)}</dd>
           </div>
           <div>
-            <dt>{isTravelSupport(c) ? "交通費" : "賞金"}</dt>
+            <dt>{scholarship ? "支給" : isTravelSupport(c) ? "交通費" : "賞金"}</dt>
             <dd>{isTravelSupport(c) ? ev.prizeLabel : c.prize || ev.prizeLabel}</dd>
           </div>
         </dl>
+        {c.summary && <p className="detail-summary">{c.summary}</p>}
         {c.tags.length > 0 && (
           <div className="badges">
             {c.tags.map((tag) => (
@@ -229,7 +228,17 @@ export function Detail({
             ))}
           </div>
         )}
-        {c.summary && <p className="detail-summary">{c.summary}</p>}
+        <div className="meters">
+          <Meter label="相性" value={ev.fit} note={ev.fitReasons.join("。")} />
+          <Meter label="コスパ" value={ev.cospa} note={ev.cospaReasons.join("。")} />
+          <Meter label="挑戦度" value={ev.challenge} note={`${ev.challengeLabel}。${ev.challengeNote}`} />
+        </div>
+        <details className="howto">
+          <summary>この数字の意味</summary>
+          <p>相性は、学年・拠点・興味との近さです。</p>
+          <p>コスパは、賞金額に対して手間と移動が小さいかを見ています。企画書やオンラインは上がります。</p>
+          <p>挑戦度は、賞金額、主催の規模、実装の重さから見た通りにくさです。高いほど勝ちにくい、という意味です。</p>
+        </details>
         <p className="fine">金額と日程は公開情報の要約です。応募前に公式ページで要項を確認してください。</p>
       </aside>
     </div>,
@@ -252,6 +261,12 @@ function Meter({ label, value, note }: { label: string; value: number; note: str
   );
 }
 
+const LANE = 12;
+
+function byDeadline(a: Row, b: Row) {
+  return (a.c.deadline || a.c.starts || "9999").localeCompare(b.c.deadline || b.c.starts || "9999");
+}
+
 export function Board({
   rows,
   onOpen,
@@ -259,42 +274,66 @@ export function Board({
   rows: Row[];
   onOpen: (id: number) => void;
 }) {
+  const [shown, setShown] = useState<Record<string, number>>({});
   const columns = [
-    { id: "soon", title: "14日以内", rows: rows.filter((row) => row.ev.status === "soon") },
+    { id: "soon", title: "14日以内", rows: rows.filter((row) => row.ev.status === "soon").sort(byDeadline) },
     {
       id: "month",
       title: "15〜45日",
-      rows: rows.filter((row) => row.ev.status === "open" && row.ev.days !== null && row.ev.days <= 45),
+      rows: rows
+        .filter((row) => row.ev.status === "open" && row.ev.days !== null && row.ev.days <= 45)
+        .sort(byDeadline),
     },
     {
       id: "later",
       title: "それ以降",
-      rows: rows.filter((row) => row.ev.status === "open" && (row.ev.days === null || row.ev.days > 45)),
+      rows: rows
+        .filter((row) => row.ev.status === "open" && (row.ev.days === null || row.ev.days > 45))
+        .sort(byDeadline),
     },
     { id: "unknown", title: "日程を確認", rows: rows.filter((row) => row.ev.status === "unknown") },
-    { id: "closed", title: "終了", rows: rows.filter((row) => row.ev.status === "closed") },
+    {
+      id: "closed",
+      title: "終了",
+      rows: rows.filter((row) => row.ev.status === "closed").sort((a, b) => byDeadline(b, a)),
+    },
   ].filter((column) => column.rows.length > 0);
 
   if (!columns.length) return <Empty />;
   return (
     <div className="board">
-      {columns.map((column) => (
-        <section key={column.id} className="column">
-          <header>
-            <h3>{column.title}</h3>
-            <span>{column.rows.length}</span>
-          </header>
-          {column.rows.map((row) => (
-            <button key={row.c.id} type="button" className="mini" data-cat={row.c.category} onClick={() => onOpen(row.c.id)}>
-              <span>{row.c.category}</span>
-              <strong>{row.c.title}</strong>
-              <em>締切 {row.ev.deadlineLabel}</em>
-              <em>開催 {row.ev.startLabel}</em>
-              <small>{row.ev.prizeLabel}</small>
-            </button>
-          ))}
-        </section>
-      ))}
+      {columns.map((column) => {
+        const limit = shown[column.id] ?? LANE;
+        const rest = column.rows.length - limit;
+        return (
+          <section key={column.id} className="lane">
+            <header>
+              <h3>{column.title}</h3>
+              <span>{column.rows.length}件</span>
+            </header>
+            <div className="lane-items">
+              {column.rows.slice(0, limit).map((row) => (
+                <button key={row.c.id} type="button" className="mini" data-cat={row.c.category} onClick={() => onOpen(row.c.id)}>
+                  <span>{row.c.category}</span>
+                  <strong>{row.c.title}</strong>
+                  <em>締切 {row.ev.deadlineLabel}</em>
+                  {!isScholarship(row.c.category) && <em>開催 {row.ev.startLabel}</em>}
+                  <small>{row.ev.prizeLabel}</small>
+                </button>
+              ))}
+            </div>
+            {rest > 0 && (
+              <button
+                type="button"
+                className="more"
+                onClick={() => setShown((current) => ({ ...current, [column.id]: limit + LANE * 2 }))}
+              >
+                さらに表示（残り{rest}件）
+              </button>
+            )}
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -392,7 +431,8 @@ export function Calendar({
               <span>{item.kind}</span>
               <strong>{item.row.c.title}</strong>
               <small>
-                締切 {item.row.ev.deadlineLabel} / 開催 {item.row.ev.startLabel}
+                締切 {item.row.ev.deadlineLabel}
+                {!isScholarship(item.row.c.category) && ` / 開催 ${item.row.ev.startLabel}`}
               </small>
             </button>
           ))}
@@ -412,11 +452,36 @@ function buildCells(year: number, month: number): Array<number | null> {
   return cells;
 }
 
-export function Empty() {
+export function ToTop() {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setShow(window.scrollY > 1600);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+  if (!show) return null;
+  return (
+    <button type="button" className="to-top" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+      ↑ 上へ
+    </button>
+  );
+}
+
+export function Empty({
+  title = "条件に合う募集がありません",
+  text = "金額や地域の条件を緩めるか、「終了」を含めて探してみてください。",
+  children,
+}: {
+  title?: string;
+  text?: string;
+  children?: ReactNode;
+}) {
   return (
     <div className="empty">
-      <h3>条件に合う募集がありません</h3>
-      <p>賞金や地域の条件を緩めるか、「終了」を含めて探してみてください。</p>
+      <h3>{title}</h3>
+      <p>{text}</p>
+      {children}
     </div>
   );
 }

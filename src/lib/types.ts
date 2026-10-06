@@ -87,11 +87,13 @@ export type Profile = {
   interests: string[];
 };
 
+export type Kind = "contest" | "scholarship";
 export type SortKey = "recommend" | "cospa" | "prize" | "deadline" | "start" | "easy";
 export type StatusFilter = "open" | "soon" | "all" | "closed";
 export type View = "cards" | "board" | "calendar";
 
 export type Filters = {
+  kind: Kind;
   q: string;
   status: StatusFilter;
   categories: Category[];

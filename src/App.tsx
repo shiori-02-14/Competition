@@ -1,33 +1,43 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Board, Calendar, Card, Detail, Empty } from "./components";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Board, Calendar, Card, Detail, Empty, ToTop } from "./components";
 import {
   AREA_OPTIONS,
-  CATEGORIES,
-  CONTEST_CATEGORIES,
+  CATEGORIES_BY_KIND,
   DEFAULT_FILTERS,
   FORMAT_OPTIONS,
+  KIND_OPTIONS,
   PRIZE_OPTIONS,
   PROMPTS,
   ROLE_OPTIONS,
-  SCHOLARSHIP_CATEGORIES,
+  SEARCH_PLACEHOLDER,
   SORTS,
   STATUS_OPTIONS,
   TAGS,
   effectiveSort,
   evaluate,
   filtersToSearch,
+  formatYen,
   interpret,
-  isScholarship,
   isView,
   loadIds,
   loadProfile,
   matchRow,
   readFilters,
   sortRows,
+  switchKind,
   todayISO,
 } from "./lib/logic";
 import { installSearchIndex, searchGeneration } from "./lib/kana";
-import type { Category, Competition, Filters, Profile, SortKey, View } from "./lib/types";
+import type { Category, Competition, Filters, Kind, Profile, SortKey, StatusFilter, View } from "./lib/types";
+
+const PAGE = 20;
+
+const STATUS_CHIP: Record<StatusFilter, string> = {
+  open: "まだ間に合う",
+  soon: "14日以内",
+  closed: "終了した募集",
+  all: "終了も含む",
+};
 
 type SourceReport = { id: string; label: string; ok: boolean; fetched: number; error?: string };
 type Catalog = {
@@ -63,6 +73,8 @@ export default function App() {
   const [focusDay, setFocusDay] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [loadError, setLoadError] = useState("");
+  const [nav, setNav] = useState(0);
+  const mainRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     let stop = false;
@@ -92,8 +104,8 @@ export default function App() {
   const searchGen = searchGeneration();
   const query = useMemo(() => {
     void searchGen;
-    return interpret(filters.q);
-  }, [filters.q, searchGen]);
+    return interpret(filters.q, filters.kind);
+  }, [filters.q, filters.kind, searchGen]);
   const sort = effectiveSort(filters, query);
   const filtered = useMemo(
     () => sortRows(evaluated.filter((row) => matchRow(row, filters, query, saved)), sort, today),
@@ -101,15 +113,62 @@ export default function App() {
   );
   const counts = useMemo(() => {
     const base = evaluated.filter((row) => matchRow(row, { ...filters, categories: [] }, query, saved));
-    return Object.fromEntries(CATEGORIES.map((cat) => [cat, base.filter((row) => row.c.category === cat).length]));
+    return Object.fromEntries(
+      CATEGORIES_BY_KIND[filters.kind].map((cat) => [cat, base.filter((row) => row.c.category === cat).length]),
+    );
+  }, [evaluated, filters, query, saved]);
+  const kindCounts = useMemo(() => {
+    const result: Record<Kind, number> = { contest: 0, scholarship: 0 };
+    for (const option of KIND_OPTIONS) {
+      const next = switchKind(filters, option.id);
+      const nextQuery = next === filters ? query : interpret(next.q, option.id);
+      result[option.id] = evaluated.filter((row) => matchRow(row, next, nextQuery, saved)).length;
+    }
+    return result;
   }, [evaluated, filters, query, saved]);
 
   useEffect(() => {
+    void nav;
     const next = filtersToSearch(filters, view, selected);
     const current = `${window.location.pathname}${window.location.search}`;
     const target = `${window.location.pathname}${next}`;
-    if (current !== target) window.history.replaceState(null, "", target);
-  }, [filters, view, selected]);
+    if (current !== target) window.history.replaceState(window.history.state, "", target);
+  }, [filters, view, selected, nav]);
+
+  // history.back() は非同期なので、popstate の前にもう一度閉じるとサイトの外まで戻ってしまう。
+  const goingBack = useRef(false);
+  const closeLayer = useCallback((layer: "detail" | "filters", fallback: () => void) => {
+    if (window.history.state?.layer !== layer) return fallback();
+    if (goingBack.current) return;
+    goingBack.current = true;
+    window.history.back();
+  }, []);
+  const closeDetail = useCallback(() => closeLayer("detail", () => setSelected(null)), [closeLayer]);
+  const closeFilters = useCallback(() => closeLayer("filters", () => setFiltersOpen(false)), [closeLayer]);
+
+  useEffect(() => {
+    const onPop = () => {
+      goingBack.current = false;
+      setSelected(readSelected(window.location.search));
+      setFiltersOpen(window.history.state?.layer === "filters");
+      setNav((count) => count + 1);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  useEffect(() => {
+    if (!filtersOpen) return;
+    document.body.classList.add("panel-open");
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeFilters();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.classList.remove("panel-open");
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [filtersOpen, closeFilters]);
 
   useEffect(() => {
     localStorage.setItem("cz-profile", JSON.stringify(profile));
@@ -152,16 +211,83 @@ export default function App() {
     !filters.docOnly &&
     !filters.beginner &&
     !filters.savedOnly;
-  const scholarshipRows = filtered.filter((row) => isScholarship(row.c.category));
-  const contestRows = filtered.filter((row) => !isScholarship(row.c.category));
-  const splitScholarships = view === "cards" && scholarshipRows.length > 0 && contestRows.length > 0;
-  const mainRows = splitScholarships ? contestRows : filtered;
-  const featured = browsing && sort === "recommend" ? mainRows.slice(0, 3) : [];
-  const list = featured.length ? mainRows.slice(featured.length) : mainRows;
+  const featured = browsing && sort === "recommend" ? filtered.slice(0, 3) : [];
+  const list = featured.length ? filtered.slice(featured.length) : filtered;
+  const scholarshipTab = filters.kind === "scholarship";
+  const otherKind = KIND_OPTIONS.find((option) => option.id !== filters.kind) ?? KIND_OPTIONS[0];
+  const crossHits = filters.q && switchKind(filters, otherKind.id).q === filters.q ? kindCounts[otherKind.id] : 0;
   const roleLabel = ROLE_OPTIONS.find((item) => item.id === profile.role)?.label;
-  const areaLabel = profile.area === "all" ? "拠点はどこでも" : profile.area;
+  const profileLabel = [
+    roleLabel,
+    profile.area === "all" ? "全国" : profile.area,
+    ...profile.interests.slice(0, 3),
+  ].join("・");
+
+  const listKey = filtersToSearch(filters, view, null);
+  const [paging, setPaging] = useState({ key: listKey, limit: PAGE });
+  const limit = paging.key === listKey ? paging.limit : PAGE;
+  const visible = list.slice(0, limit);
+  const rest = list.length - visible.length;
+  const shownKey = useRef(listKey);
+  useEffect(() => {
+    if (shownKey.current === listKey) return;
+    shownKey.current = listKey;
+    const main = mainRef.current;
+    if (main && main.getBoundingClientRect().top < 0) main.scrollIntoView({ block: "start" });
+  }, [listKey]);
+
+  const applied: { id: string; label: string; clear: Partial<Filters> }[] = [];
+  if (filters.savedOnly) {
+    applied.push({
+      id: "saved",
+      label: "保存だけ",
+      clear: filters.status === "all" ? { savedOnly: false, status: "open" } : { savedOnly: false },
+    });
+  }
+  if (filters.status !== "open" && !(filters.savedOnly && filters.status === "all")) {
+    applied.push({ id: "status", label: STATUS_CHIP[filters.status], clear: { status: "open" } });
+  }
+  for (const category of filters.categories) {
+    applied.push({
+      id: category,
+      label: category,
+      clear: { categories: filters.categories.filter((item) => item !== category) },
+    });
+  }
+  if (filters.format !== "all") {
+    const label = FORMAT_OPTIONS.find((option) => option.id === filters.format)?.label ?? filters.format;
+    applied.push({ id: "format", label, clear: { format: "all" } });
+  }
+  if (filters.area !== "all") applied.push({ id: "area", label: filters.area, clear: { area: "all" } });
+  if (filters.minPrize) {
+    const label =
+      PRIZE_OPTIONS.find((option) => option.yen === filters.minPrize)?.label ?? `${formatYen(filters.minPrize)}〜`;
+    applied.push({ id: "prize", label: `${scholarshipTab ? "金額" : "賞金"}${label}`, clear: { minPrize: 0 } });
+  }
+  if (filters.student) applied.push({ id: "student", label: "学生が対象", clear: { student: false } });
+  if (filters.universityPlus) applied.push({ id: "uni", label: "大学生以上", clear: { universityPlus: false } });
+  if (filters.docOnly) applied.push({ id: "doc", label: "企画・書類が中心", clear: { docOnly: false } });
+  if (filters.beginner) applied.push({ id: "beginner", label: "初心者歓迎", clear: { beginner: false } });
 
   const patch = (partial: Partial<Filters>) => setFilters((current) => ({ ...current, ...partial }));
+  const resetFilters = () => setFilters({ ...DEFAULT_FILTERS, kind: filters.kind });
+  const clearApplied = () =>
+    setFilters((current) => ({ ...DEFAULT_FILTERS, kind: current.kind, q: current.q, sortOverride: current.sortOverride }));
+  const openDetail = (id: number) => {
+    window.history.pushState({ layer: "detail" }, "", `${window.location.pathname}${filtersToSearch(filters, view, id)}`);
+    setSelected(id);
+  };
+  const openFilters = () => {
+    window.history.pushState({ layer: "filters" }, "", window.location.href);
+    setFiltersOpen(true);
+  };
+  const setQuery = (q: string) =>
+    setFilters((current) => {
+      const named = interpret(q, current.kind).kind;
+      const base = named && named !== current.kind ? switchKind(current, named) : current;
+      return { ...base, q, sortOverride: undefined };
+    });
+  const changeKind = (next: Kind) => setFilters((current) => switchKind(current, next));
   const applyQuick = (next: "open" | "soon" | "saved") => {
     if (next === "saved") {
       patch(filters.savedOnly ? { savedOnly: false, status: "open" } : { savedOnly: true, status: "all" });
@@ -184,7 +310,7 @@ export default function App() {
   const setSort = (next: SortKey) => patch({ sortOverride: next });
   const toggleSave = (id: number) =>
     setSaved((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
-  const toggleCategory = (category: (typeof CATEGORIES)[number]) =>
+  const toggleCategory = (category: Category) =>
     patch({
       categories: filters.categories.includes(category)
         ? filters.categories.filter((item) => item !== category)
@@ -227,6 +353,22 @@ export default function App() {
         </div>
       </header>
 
+      <div className="kinds" role="tablist" aria-label="探すもの">
+        {KIND_OPTIONS.map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            role="tab"
+            aria-selected={filters.kind === option.id}
+            className={filters.kind === option.id ? "is-on" : undefined}
+            onClick={() => changeKind(option.id)}
+          >
+            {option.label}
+            {catalog && <em>{kindCounts[option.id]}件</em>}
+          </button>
+        ))}
+      </div>
+
       <section className="finder">
         <form
           className="search"
@@ -240,21 +382,37 @@ export default function App() {
           </label>
           <input
             id="q"
+            type="search"
+            enterKeyHint="search"
+            autoComplete="off"
             value={filters.q}
-            placeholder="例: はっかそん、とよはし、書類だけのコスパ"
-            onChange={(event) => patch({ q: event.target.value, sortOverride: undefined })}
+            placeholder={SEARCH_PLACEHOLDER[filters.kind]}
+            onChange={(event) => setQuery(event.target.value)}
           />
+          {filters.q && (
+            <button
+              type="button"
+              className="clear"
+              aria-label="検索語を消す"
+              onClick={() => {
+                setQuery("");
+                document.getElementById("q")?.focus();
+              }}
+            >
+              ×
+            </button>
+          )}
           <button type="submit" className="primary">
             探す
           </button>
         </form>
         <div className="prompts">
-          {PROMPTS.map((prompt) => (
+          {PROMPTS[filters.kind].map((prompt) => (
             <button
               key={prompt.q}
               type="button"
               className={filters.q === prompt.q ? "chip is-on" : "chip"}
-              onClick={() => patch({ q: filters.q === prompt.q ? "" : prompt.q, sortOverride: undefined })}
+              onClick={() => setQuery(filters.q === prompt.q ? "" : prompt.q)}
             >
               {prompt.label}
             </button>
@@ -269,7 +427,9 @@ export default function App() {
           </p>
         )}
         <details className="profile">
-          <summary>あなた向けの条件</summary>
+          <summary>
+            あなた向けの条件<span>{profileLabel}</span>
+          </summary>
           <div>
             <span className="label">立場</span>
             {ROLE_OPTIONS.map((option) => (
@@ -327,7 +487,7 @@ export default function App() {
         <aside className={filtersOpen ? "side is-open" : "side"}>
           <div className="side-head">
             <h2>絞り込み</h2>
-            <button type="button" className="text-btn close-side" onClick={() => setFiltersOpen(false)}>
+            <button type="button" className="text-btn close-side" onClick={closeFilters}>
               閉じる
             </button>
           </div>
@@ -344,8 +504,8 @@ export default function App() {
               </button>
             ))}
           </FilterGroup>
-          <FilterGroup label="奨学金">
-            {SCHOLARSHIP_CATEGORIES.map((category) => (
+          <FilterGroup label="ジャンル">
+            {CATEGORIES_BY_KIND[filters.kind].map((category) => (
               <CategoryChip
                 key={category}
                 category={category}
@@ -355,32 +515,21 @@ export default function App() {
               />
             ))}
           </FilterGroup>
-          <FilterGroup label="コンペ">
-            {CONTEST_CATEGORIES.map((category) => (
-              <CategoryChip
-                key={category}
-                category={category}
-                count={counts[category] ?? 0}
-                on={filters.categories.includes(category)}
-                onToggle={toggleCategory}
-              />
-            ))}
-          </FilterGroup>
-          <details className="more">
-            <summary>開催条件</summary>
-          <FilterGroup label="形式">
-            {FORMAT_OPTIONS.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                className={filters.format === option.id ? "chip is-on" : "chip"}
-                aria-pressed={filters.format === option.id}
-                onClick={() => patch({ format: option.id })}
-              >
-                {option.label}
-              </button>
-            ))}
-          </FilterGroup>
+          {!scholarshipTab && (
+            <FilterGroup label="形式">
+              {FORMAT_OPTIONS.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  className={filters.format === option.id ? "chip is-on" : "chip"}
+                  aria-pressed={filters.format === option.id}
+                  onClick={() => patch({ format: option.id })}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </FilterGroup>
+          )}
           <FilterGroup label="地域">
             {AREA_OPTIONS.map((option) => (
               <button
@@ -393,9 +542,11 @@ export default function App() {
                 {option.label}
               </button>
             ))}
-            <p className="fine">オンライン開催は、地域を選んでも残します。</p>
+            <p className="fine">
+              {scholarshipTab ? "地域の記載がない奨学金は外れます。" : "オンライン開催は、地域を選んでも残します。"}
+            </p>
           </FilterGroup>
-          <FilterGroup label="賞金">
+          <FilterGroup label={scholarshipTab ? "金額" : "賞金"}>
             {PRIZE_OPTIONS.map((option) => (
               <button
                 key={option.yen}
@@ -409,14 +560,16 @@ export default function App() {
             ))}
           </FilterGroup>
           <FilterGroup label="入り方">
-            <button
-              type="button"
-              className={filters.student ? "chip is-on" : "chip"}
-              aria-pressed={filters.student}
-              onClick={() => patch({ student: !filters.student })}
-            >
-              学生が対象
-            </button>
+            {!scholarshipTab && (
+              <button
+                type="button"
+                className={filters.student ? "chip is-on" : "chip"}
+                aria-pressed={filters.student}
+                onClick={() => patch({ student: !filters.student })}
+              >
+                学生が対象
+              </button>
+            )}
             <button
               type="button"
               className={filters.universityPlus ? "chip is-on" : "chip"}
@@ -425,22 +578,26 @@ export default function App() {
             >
               大学生以上
             </button>
-            <button
-              type="button"
-              className={filters.docOnly ? "chip is-on" : "chip"}
-              aria-pressed={filters.docOnly}
-              onClick={() => patch({ docOnly: !filters.docOnly })}
-            >
-              企画・書類が中心
-            </button>
-            <button
-              type="button"
-              className={filters.beginner ? "chip is-on" : "chip"}
-              aria-pressed={filters.beginner}
-              onClick={() => patch({ beginner: !filters.beginner })}
-            >
-              初心者歓迎
-            </button>
+            {!scholarshipTab && (
+              <>
+                <button
+                  type="button"
+                  className={filters.docOnly ? "chip is-on" : "chip"}
+                  aria-pressed={filters.docOnly}
+                  onClick={() => patch({ docOnly: !filters.docOnly })}
+                >
+                  企画・書類が中心
+                </button>
+                <button
+                  type="button"
+                  className={filters.beginner ? "chip is-on" : "chip"}
+                  aria-pressed={filters.beginner}
+                  onClick={() => patch({ beginner: !filters.beginner })}
+                >
+                  初心者歓迎
+                </button>
+              </>
+            )}
             <button
               type="button"
               className={filters.savedOnly ? "chip is-on" : "chip"}
@@ -450,27 +607,35 @@ export default function App() {
               保存だけ
             </button>
           </FilterGroup>
-          </details>
-          <button type="button" className="text-btn reset" onClick={() => setFilters(DEFAULT_FILTERS)}>
+          <button type="button" className="text-btn reset" onClick={resetFilters}>
             条件をリセット
           </button>
+          <div className="side-foot">
+            <button type="button" className="text-btn" onClick={resetFilters}>
+              リセット
+            </button>
+            <button type="button" className="apply" onClick={closeFilters}>
+              {filtered.length}件を見る
+            </button>
+          </div>
         </aside>
 
-        <main>
+        <main ref={mainRef}>
           <div className="toolbar">
             <p>
-              {roleLabel} · {areaLabel}で <strong>{filtered.length}</strong> 件
+              該当 <strong>{filtered.length}</strong> 件
             </p>
             <div className="toolbar-actions">
-              <button type="button" className="ghost filter-toggle" onClick={() => setFiltersOpen(true)}>
+              <button type="button" className="ghost filter-toggle" onClick={openFilters}>
                 絞り込み
+                {applied.length > 0 && <em>{applied.length}</em>}
               </button>
               <div className="views" role="tablist" aria-label="表示">
                 {(
                   [
-                    ["cards", "図鑑"],
+                    ["cards", "一覧"],
                     ["board", "締切"],
-                    ["calendar", "暦"],
+                    ["calendar", "カレンダー"],
                   ] as const
                 ).map(([id, label]) => (
                   <button
@@ -487,9 +652,28 @@ export default function App() {
               </div>
             </div>
           </div>
+          {applied.length > 0 && (
+            <div className="applied" role="group" aria-label="適用中の条件">
+              {applied.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="chip is-on"
+                  aria-label={`${item.label}を外す`}
+                  onClick={() => patch(item.clear)}
+                >
+                  {item.label}
+                  <span aria-hidden="true">×</span>
+                </button>
+              ))}
+              <button type="button" className="text-btn" onClick={clearApplied}>
+                すべて解除
+              </button>
+            </div>
+          )}
           {view === "cards" && (
             <div className="sorts">
-              {SORTS.map((option) => (
+              {SORTS[filters.kind].map((option) => (
                 <button
                   key={option.id}
                   type="button"
@@ -524,7 +708,7 @@ export default function App() {
                     key={row.c.id}
                     row={row}
                     saved={saved.includes(row.c.id)}
-                    onOpen={setSelected}
+                    onOpen={openDetail}
                     onToggleSave={toggleSave}
                   />
                 ))}
@@ -532,52 +716,42 @@ export default function App() {
             </section>
           )}
 
-          {catalog && view === "cards" && scholarshipRows.length > 0 && (splitScholarships || contestRows.length === 0) && (
-            <section className="scholarship">
-              <h2 className="section-label">奨学金</h2>
-              <p className="fine">学業、留学、スポーツ、芸術、医療・福祉、理工、経済支援に分けています。金額は公開されている総額です。</p>
-              {SCHOLARSHIP_CATEGORIES.map((genre) => {
-                const rows = scholarshipRows.filter((row) => row.c.category === genre);
-                if (!rows.length) return null;
-                return (
-                  <div className="genre-block" key={genre}>
-                    <h3>{genre}</h3>
-                    <div className="stack">
-                      {rows.map((row) => (
-                        <Card
-                          key={row.c.id}
-                          row={row}
-                          saved={saved.includes(row.c.id)}
-                          onOpen={setSelected}
-                          onToggleSave={toggleSave}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </section>
-          )}
-
-          {catalog && view === "cards" && contestRows.length > 0 && (
+          {catalog && view === "cards" && list.length > 0 && (
             <section className="stack">
-              {splitScholarships && list.length > 0 && <h2 className="section-label">コンペ・イベント</h2>}
-              {!splitScholarships && featured.length > 0 && list.length > 0 && (
-                <h2 className="section-label">すべての募集</h2>
-              )}
-              {list.map((row) => (
+              {featured.length > 0 && <h2 className="section-label">すべての{scholarshipTab ? "奨学金" : "募集"}</h2>}
+              {visible.map((row) => (
                 <Card
                   key={row.c.id}
                   row={row}
                   saved={saved.includes(row.c.id)}
-                  onOpen={setSelected}
+                  onOpen={openDetail}
                   onToggleSave={toggleSave}
                 />
               ))}
+              {rest > 0 && (
+                <button type="button" className="more" onClick={() => setPaging({ key: listKey, limit: limit + PAGE })}>
+                  もっと見る（残り{rest}件）
+                </button>
+              )}
             </section>
           )}
-          {catalog && view === "cards" && filtered.length === 0 && <Empty />}
-          {catalog && view === "board" && <Board rows={filtered} onOpen={setSelected} />}
+          {catalog && view === "cards" && filtered.length === 0 && (
+            filters.savedOnly && saved.length === 0 ? (
+              <Empty
+                title="保存した募集はまだありません"
+                text="気になる募集はカードの「保存」で残せます。あとからここでまとめて見返せます。"
+              />
+            ) : (
+              <Empty>
+                {crossHits > 0 && (
+                  <button type="button" className="ghost" onClick={() => changeKind(otherKind.id)}>
+                    {otherKind.label}なら{crossHits}件あります
+                  </button>
+                )}
+              </Empty>
+            )
+          )}
+          {catalog && view === "board" && <Board key={listKey} rows={filtered} onOpen={openDetail} />}
           {catalog && view === "calendar" && (
             <Calendar
               rows={filtered}
@@ -586,18 +760,17 @@ export default function App() {
               focus={focusDay}
               onCursor={setCursor}
               onFocus={setFocusDay}
-              onOpen={setSelected}
+              onOpen={openDetail}
             />
           )}
         </main>
       </div>
+      <ToTop />
 
       <footer className="foot">
         <p>
           {catalog
-            ? `${formatUpdated(catalog.updatedAt)}に、${catalog.sources
-                .map((source) => (source.ok ? `${source.label} ${source.fetched}件` : `${source.label}は失敗`))
-                .join("、")}から取得しました。毎日7:10に自動更新します。`
+            ? `${formatUpdated(catalog.updatedAt)}時点の募集です。毎日7:10に自動更新します。`
             : "毎日7:10に、公開サイトから募集を自動更新します。"}
           重複はまとめ、終了した募集は初期状態では隠しています。金額と日程は要約なので、応募前に公式ページを確認してください。
         </p>
@@ -607,7 +780,7 @@ export default function App() {
         <Detail
           row={selectedRow}
           saved={saved.includes(selectedRow.c.id)}
-          onClose={() => setSelected(null)}
+          onClose={closeDetail}
           onToggleSave={toggleSave}
         />
       )}

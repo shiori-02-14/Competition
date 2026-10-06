@@ -6,6 +6,7 @@ import type {
   Competition,
   Filters,
   Format,
+  Kind,
   Profile,
   ProfileArea,
   Role,
@@ -43,6 +44,20 @@ export function isScholarship(category: Category): boolean {
   return SCHOLARSHIP_CATEGORIES.includes(category);
 }
 
+export function kindOf(category: Category): Kind {
+  return isScholarship(category) ? "scholarship" : "contest";
+}
+
+export const KIND_OPTIONS: { id: Kind; label: string }[] = [
+  { id: "contest", label: "コンペ・イベント" },
+  { id: "scholarship", label: "奨学金" },
+];
+
+export const CATEGORIES_BY_KIND: Record<Kind, Category[]> = {
+  contest: CONTEST_CATEGORIES,
+  scholarship: SCHOLARSHIP_CATEGORIES,
+};
+
 export const CATEGORY_SHORT: Record<Category, string> = {
   ハッカソン: "HACK",
   "ビジネス・企画": "BIZ",
@@ -75,7 +90,6 @@ const LEGACY_CATEGORY: Record<string, Category> = {
   学術: "文芸・論文",
   スタートアップ: "ビジネス・企画",
   アクセラレーション: "ビジネス・企画",
-  奨学金: "学業",
 };
 
 export const TAGS = [
@@ -93,14 +107,21 @@ export const TAGS = [
   "海外",
 ] as const;
 
-export const SORTS: { id: SortKey; label: string }[] = [
-  { id: "recommend", label: "おすすめ" },
-  { id: "cospa", label: "コスパ" },
-  { id: "prize", label: "賞金順" },
-  { id: "deadline", label: "締切順" },
-  { id: "start", label: "開催日" },
-  { id: "easy", label: "挑戦しやすい" },
-];
+export const SORTS: Record<Kind, { id: SortKey; label: string }[]> = {
+  contest: [
+    { id: "recommend", label: "おすすめ" },
+    { id: "cospa", label: "コスパ" },
+    { id: "prize", label: "賞金順" },
+    { id: "deadline", label: "締切順" },
+    { id: "start", label: "開催日" },
+    { id: "easy", label: "挑戦しやすい" },
+  ],
+  scholarship: [
+    { id: "recommend", label: "おすすめ" },
+    { id: "prize", label: "金額順" },
+    { id: "deadline", label: "締切順" },
+  ],
+};
 
 export const STATUS_OPTIONS: { id: StatusFilter; label: string }[] = [
   { id: "open", label: "まだ間に合う" },
@@ -128,7 +149,7 @@ export const AREA_OPTIONS: { id: ProfileArea; label: string }[] = [
 ];
 
 export const PRIZE_OPTIONS = [
-  { yen: 0, label: "賞金指定なし" },
+  { yen: 0, label: "指定なし" },
   { yen: 100_000, label: "10万円〜" },
   { yen: 300_000, label: "30万円〜" },
   { yen: 1_000_000, label: "100万円〜" },
@@ -142,15 +163,30 @@ export const ROLE_OPTIONS: { id: Role; label: string }[] = [
   { id: "working", label: "社会人" },
 ];
 
-export const PROMPTS = [
-  { label: "書類だけでコスパ", q: "書類選考だけのコスパの高いコンペ" },
-  { label: "100万円以上", q: "100万円以上" },
-  { label: "30万円以上のハッカソン", q: "30万円以上のハッカソン" },
-  { label: "経験になる学生向け", q: "経験になる学生向けのコンペ" },
-  { label: "オンライン", q: "オンライン" },
-];
+export const PROMPTS: Record<Kind, { label: string; q: string }[]> = {
+  contest: [
+    { label: "書類だけでコスパ", q: "書類選考だけのコスパの高いコンペ" },
+    { label: "100万円以上", q: "100万円以上" },
+    { label: "30万円以上のハッカソン", q: "30万円以上のハッカソン" },
+    { label: "経験になる学生向け", q: "経験になる学生向けのコンペ" },
+    { label: "オンライン", q: "オンライン" },
+  ],
+  scholarship: [
+    { label: "100万円以上", q: "100万円以上" },
+    { label: "大学院生向け", q: "大学院" },
+    { label: "留学", q: "留学" },
+    { label: "理工系", q: "理工" },
+    { label: "医療・福祉", q: "医療" },
+  ],
+};
+
+export const SEARCH_PLACEHOLDER: Record<Kind, string> = {
+  contest: "例: はっかそん、とよはし、書類だけのコスパ",
+  scholarship: "例: りゅうがく、大学院、理工系",
+};
 
 export const DEFAULT_FILTERS: Filters = {
+  kind: "contest",
   q: "",
   status: "open",
   categories: [],
@@ -194,6 +230,7 @@ const PLACE_EXTRAS: Record<string, string[]> = {
 export type Interpreted = {
   text: string;
   notes: string[];
+  kind?: Kind;
   minPrize?: number;
   categories?: Category[];
   format?: Format;
@@ -558,77 +595,103 @@ function consume(rest: string, re: RegExp, apply: (match: RegExpMatchArray) => v
   return `${rest.slice(0, match.index)} ${rest.slice(match.index + match[0].length)}`.replace(/\s+/g, " ").trim();
 }
 
-export function interpret(query: string): Interpreted {
+const SCHOLARSHIP_WORDS = /奨学金|奨学生/;
+const CONTEST_WORDS = /ハッカソン|アイデアソン|ビジコン|ビジネスコンテスト|コンペ|コンテスト|コンクール|交流会|ミートアップ|ピッチ/;
+
+const CONTEST_GENRES: [RegExp, Category][] = [
+  [/グラフィック|ポスター/, "グラフィック"],
+  [/プロダクト|商品企画/, "プロダクト"],
+  [/建築|インテリア/, "建築・空間"],
+  [/ロゴ|キャラクター/, "ロゴ・キャラ"],
+  [/イラスト|マンガ|漫画/, "イラスト"],
+  [/絵画/, "絵画"],
+  [/写真/, "写真"],
+  [/映像|アニメ/, "映像"],
+  [/川柳|俳句|短歌/, "川柳・短歌"],
+  [/音楽|エンタメ/, "音楽・エンタメ"],
+  [/ファッション|工芸/, "工芸・ファッション"],
+  [/デジタル|アプリ/, "デジタル"],
+];
+
+const SCHOLARSHIP_GENRES: [RegExp, Category][] = [
+  [/留学/, "留学"],
+  [/スポーツ/, "スポーツ"],
+  [/芸術系?|美術系?|音楽系?/, "芸術"],
+  [/医療系?|看護系?|福祉系?/, "医療・福祉"],
+  [/理工系?|工学系?|理系/, "理工"],
+  [/経済|ひとり親|児童養護/, "経済支援"],
+  [/学業/, "学業"],
+];
+
+export function interpret(query: string, context: Kind = "contest"): Interpreted {
   let rest = canonicalize(query.trim());
   const notes: string[] = [];
   const out: Interpreted = { text: "", notes };
+  if (SCHOLARSHIP_WORDS.test(rest)) out.kind = "scholarship";
+  else if (CONTEST_WORDS.test(rest)) out.kind = "contest";
+  const kind = out.kind ?? context;
+  const money = kind === "scholarship" ? "金額" : "賞金";
 
   rest = consume(rest, /(\d+(?:\.\d+)?)\s*万円以上/, (m) => {
     out.minPrize = Number(m[1]) * 10_000;
-    notes.push(`賞金${m[1]}万円以上`);
+    notes.push(`${money}${m[1]}万円以上`);
   });
   rest = consume(rest, /(\d+(?:\.\d+)?)\s*万円/, (m) => {
     if (!out.minPrize) {
       out.minPrize = Number(m[1]) * 10_000;
-      notes.push(`賞金${m[1]}万円以上`);
+      notes.push(`${money}${m[1]}万円以上`);
     }
   });
-  rest = consume(rest, /書類(?:選考|審査)?(?:だけ|のみ|中心)?/, () => {
-    out.docOnly = true;
-    notes.push("企画・書類が中心");
-  });
-  rest = consume(rest, /コスパ(?:の高い|重視|順)?/, () => {
-    out.sort = "cospa";
-    notes.push("コスパ順");
-  });
-  rest = consume(rest, /ハッカソン/, () => {
-    out.categories = ["ハッカソン"];
-    notes.push("ハッカソン");
-  });
-  rest = consume(rest, /ビジコン|ビジネスコンテスト|ビジネス・企画|ピッチ/, () => {
-    out.categories = ["ビジネス・企画"];
-    notes.push("ビジネス・企画");
-  });
-  let scholarship = false;
-  rest = consume(rest, /奨学金/, () => {
-    scholarship = true;
-    notes.push("奨学金");
-  });
-  rest = consume(rest, /学術|論文|文芸/, () => {
-    out.categories = ["文芸・論文"];
-    notes.push("文芸・論文");
-  });
-  rest = consume(rest, /アクセラ|スタートアップ/, () => {
-    if (!out.categories) {
-      out.categories = ["ビジネス・企画"];
-      notes.push("ビジネス・企画");
-    }
-  });
-  rest = consume(rest, /交流会|ミートアップ/, () => {
-    out.categories = ["交流会"];
-    notes.push("交流会");
-  });
-  const genres: [RegExp, Category][] = [
-    [/グラフィック|ポスター/, "グラフィック"],
-    [/プロダクト|商品企画/, "プロダクト"],
-    [/建築|インテリア/, "建築・空間"],
-    [/ロゴ|キャラクター/, "ロゴ・キャラ"],
-    [/イラスト|マンガ|漫画/, "イラスト"],
-    [/絵画/, "絵画"],
-    [/写真/, "写真"],
-    [/映像|アニメ/, "映像"],
-    [/川柳|俳句|短歌/, "川柳・短歌"],
-    [/音楽|エンタメ/, "音楽・エンタメ"],
-    [/ファッション|工芸/, "工芸・ファッション"],
-    [/デジタル|アプリ/, "デジタル"],
-  ];
-  for (const [pattern, category] of genres) {
-    rest = consume(rest, pattern, () => {
-      if (!out.categories) {
+
+  if (kind === "scholarship") {
+    rest = consume(rest, SCHOLARSHIP_WORDS, () => notes.push("奨学金"));
+    for (const [pattern, category] of SCHOLARSHIP_GENRES) {
+      if (!pattern.test(rest)) continue;
+      rest = consume(rest, pattern, () => {
         out.categories = [category];
         notes.push(category);
+      });
+      break;
+    }
+  } else {
+    rest = consume(rest, /書類(?:選考|審査)?(?:だけ|のみ|中心)?/, () => {
+      out.docOnly = true;
+      notes.push("企画・書類が中心");
+    });
+    rest = consume(rest, /コスパ(?:の高い|重視|順)?/, () => {
+      out.sort = "cospa";
+      notes.push("コスパ順");
+    });
+    rest = consume(rest, /ハッカソン/, () => {
+      out.categories = ["ハッカソン"];
+      notes.push("ハッカソン");
+    });
+    rest = consume(rest, /ビジコン|ビジネスコンテスト|ビジネス・企画|ピッチ/, () => {
+      out.categories = ["ビジネス・企画"];
+      notes.push("ビジネス・企画");
+    });
+    rest = consume(rest, /学術|論文|文芸/, () => {
+      out.categories = ["文芸・論文"];
+      notes.push("文芸・論文");
+    });
+    rest = consume(rest, /アクセラ|スタートアップ/, () => {
+      if (!out.categories) {
+        out.categories = ["ビジネス・企画"];
+        notes.push("ビジネス・企画");
       }
     });
+    rest = consume(rest, /交流会|ミートアップ/, () => {
+      out.categories = ["交流会"];
+      notes.push("交流会");
+    });
+    for (const [pattern, category] of CONTEST_GENRES) {
+      rest = consume(rest, pattern, () => {
+        if (!out.categories) {
+          out.categories = [category];
+          notes.push(category);
+        }
+      });
+    }
   }
   rest = consume(rest, /大学生以上|大学以上/, () => {
     out.universityPlus = true;
@@ -638,22 +701,24 @@ export function interpret(query: string): Interpreted {
     out.student = true;
     notes.push("学生向け");
   });
-  rest = consume(rest, /初心者|未経験/, () => {
-    out.beginner = true;
-    notes.push("初心者歓迎");
-  });
-  rest = consume(rest, /経験になる|参加しやすい/, () => {
-    out.approachable = true;
-    notes.push("参加ハードル低め");
-  });
-  rest = consume(rest, /オンライン/, () => {
-    out.format = "online";
-    notes.push("オンライン可");
-  });
-  rest = consume(rest, /ハイブリッド/, () => {
-    out.format = "hybrid";
-    notes.push("ハイブリッド");
-  });
+  if (kind === "contest") {
+    rest = consume(rest, /初心者|未経験/, () => {
+      out.beginner = true;
+      notes.push("初心者歓迎");
+    });
+    rest = consume(rest, /経験になる|参加しやすい/, () => {
+      out.approachable = true;
+      notes.push("参加ハードル低め");
+    });
+    rest = consume(rest, /オンライン/, () => {
+      out.format = "online";
+      notes.push("オンライン可");
+    });
+    rest = consume(rest, /ハイブリッド/, () => {
+      out.format = "hybrid";
+      notes.push("ハイブリッド");
+    });
+  }
 
   const places = [...new Set(PLACE_WORDS)].sort((a, b) => b.length - a.length);
   for (const place of places) {
@@ -663,26 +728,6 @@ export function interpret(query: string): Interpreted {
       rest = rest.replace(place, " ");
       break;
     }
-  }
-
-  if (scholarship && !out.categories) {
-    const kinds: [RegExp, Category][] = [
-      [/留学/, "留学"],
-      [/スポーツ/, "スポーツ"],
-      [/芸術|美術|音楽/, "芸術"],
-      [/医療|看護|福祉/, "医療・福祉"],
-      [/理工|工学/, "理工"],
-      [/経済|ひとり親|児童養護/, "経済支援"],
-      [/学業/, "学業"],
-    ];
-    for (const [pattern, category] of kinds) {
-      if (!pattern.test(rest)) continue;
-      out.categories = [category];
-      notes.push(category);
-      rest = rest.replace(pattern, " ");
-      break;
-    }
-    if (!out.categories) out.categories = [...SCHOLARSHIP_CATEGORIES];
   }
 
   const bare = stripParticles(rest.replace(/コンペ|コンテスト|募集|だけ|高い|以上/g, ""));
@@ -695,7 +740,27 @@ export function interpret(query: string): Interpreted {
 }
 
 export function effectiveSort(filters: Filters, query: Interpreted): SortKey {
-  return filters.sortOverride ?? query.sort ?? "recommend";
+  const sort = filters.sortOverride ?? query.sort ?? "recommend";
+  return SORTS[filters.kind].some((option) => option.id === sort) ? sort : "recommend";
+}
+
+export function switchKind(filters: Filters, kind: Kind): Filters {
+  if (filters.kind === kind) return filters;
+  const named = interpret(filters.q, filters.kind).kind;
+  const prompt =
+    PROMPTS[filters.kind].some((item) => item.q === filters.q) && !PROMPTS[kind].some((item) => item.q === filters.q);
+  return {
+    ...filters,
+    kind,
+    q: (named && named !== kind) || prompt ? "" : filters.q,
+    categories: [],
+    format: "all",
+    minPrize: 0,
+    student: kind === "scholarship" ? false : filters.student,
+    docOnly: false,
+    beginner: false,
+    sortOverride: SORTS[kind].some((option) => option.id === filters.sortOverride) ? filters.sortOverride : undefined,
+  };
 }
 
 function mergeCategories(selected: Category[], query?: Category[]): Category[] | null {
@@ -739,6 +804,7 @@ function belowUniversity(c: Competition): boolean {
 
 export function matchRow(row: Row, filters: Filters, query: Interpreted, saved: number[]): boolean {
   const { c, ev } = row;
+  if (kindOf(c.category) !== filters.kind) return false;
   if (filters.savedOnly && !saved.includes(c.id)) return false;
   if (filters.status === "open" && ev.status === "closed" && !query.text) return false;
   if (filters.status === "soon" && ev.status !== "soon") return false;
@@ -807,7 +873,7 @@ export function sortRows(rows: Row[], sort: SortKey, today: string): Row[] {
 }
 
 export function isSort(value: string | null): value is SortKey {
-  return SORTS.some((item) => item.id === value);
+  return SORTS.contest.some((item) => item.id === value);
 }
 
 export function isStatus(value: string | null): value is StatusFilter {
@@ -820,14 +886,17 @@ export function isView(value: string | null): value is import("./types").View {
 
 export function readFilters(search: string): Filters {
   const params = new URLSearchParams(search);
-  const categories = [
-    ...new Set(
-      (params.get("cat") ?? "").split(",").flatMap((item) => {
-        if (item === "奨学金") return SCHOLARSHIP_CATEGORIES;
-        return [LEGACY_CATEGORY[item] ?? item];
-      }),
-    ),
-  ].filter((item): item is Category => CATEGORIES.includes(item as Category));
+  const raw = (params.get("cat") ?? "").split(",").filter(Boolean);
+  const named = [...new Set(raw.filter((item) => item !== "奨学金").map((item) => LEGACY_CATEGORY[item] ?? item))].filter(
+    (item): item is Category => CATEGORIES.includes(item as Category),
+  );
+  const q = params.get("q") ?? "";
+  const asked = params.get("kind");
+  const kind: Kind =
+    interpret(q).kind ??
+    (asked === "scholarship" || asked === "contest" ? asked : undefined) ??
+    (raw.includes("奨学金") || (named.length > 0 && named.every(isScholarship)) ? "scholarship" : "contest");
+  const contest = kind === "contest";
   const format = params.get("format");
   const area = params.get("area");
   const sort = params.get("sort");
@@ -836,25 +905,27 @@ export function readFilters(search: string): Filters {
   if (isStatus(params.get("status"))) status = params.get("status") as StatusFilter;
   const filters: Filters = {
     ...DEFAULT_FILTERS,
-    q: params.get("q") ?? "",
+    kind,
+    q,
     status,
-    categories,
-    format: format === "online" || format === "hybrid" || format === "onsite" ? format : "all",
+    categories: named.filter((item) => kindOf(item) === kind),
+    format: contest && (format === "online" || format === "hybrid" || format === "onsite") ? format : "all",
     area: AREA_OPTIONS.some((item) => item.id === area) ? (area as ProfileArea) : "all",
     minPrize: Number(params.get("prize") ?? 0) || 0,
-    student: params.get("student") === "1",
+    student: contest && params.get("student") === "1",
     universityPlus: params.get("uni") === "1",
-    docOnly: params.get("doc") === "1",
-    beginner: params.get("beginner") === "1",
+    docOnly: contest && params.get("doc") === "1",
+    beginner: contest && params.get("beginner") === "1",
     savedOnly: params.get("saved") === "1",
   };
   if (sort === "score") filters.sortOverride = "recommend";
-  else if (isSort(sort)) filters.sortOverride = sort;
+  else if (isSort(sort) && SORTS[kind].some((item) => item.id === sort)) filters.sortOverride = sort;
   return filters;
 }
 
 export function filtersToSearch(filters: Filters, view: import("./types").View, selected: number | null): string {
   const params = new URLSearchParams();
+  if (filters.kind !== "contest") params.set("kind", filters.kind);
   if (filters.q) params.set("q", filters.q);
   if (filters.status !== "open") params.set("status", filters.status);
   if (filters.sortOverride && filters.sortOverride !== "recommend") params.set("sort", filters.sortOverride);
